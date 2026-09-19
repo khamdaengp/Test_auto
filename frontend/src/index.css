@@ -1,0 +1,48 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Color Scheme: Modern Azure Blue */
+  /* Replaces #972828 (Deep Dark Tone) */
+  --color-primary-dark: #1e3a8a;
+  --color-primary-dark-rgb: 30, 58, 138;
+
+  /* Replaces #E45742 (Primary Brand Tone) */
+  --primary-color: #2563eb;
+  --color-primary: #2563eb;
+  --primary-color-rgb: 37, 99, 235;
+
+  /* Replaces #EB7F31 (Accent Tone) */
+  --color-accent: #3b82f6;
+  --color-accent-rgb: 59, 130, 246;
+
+  /* Replaces #FCAD38 (Highlight / Light Accent Tone) */
+  --color-highlight: #60a5fa;
+  --color-highlight-rgb: 96, 165, 250;
+}
+
+@layer base {
+  body {
+    @apply bg-slate-50 text-slate-900 selection:bg-blue-600 selection:text-white;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
