@@ -34,50 +34,38 @@ test.describe('Automated Visual Scenario', () => {
     // Step 7: Verify URL contains "map-conn-with-sale-staff"
     await expect(page).toHaveURL(/.*map-conn-with-sale-staff/, { timeout: 15_000 });
 
-    // ---------------------------------------------------------------
-    // 1. Verify Default Dropdown Values (Branch, Business center, Sales staff, Station code, Cablebox code, Status = "All")
-    // ---------------------------------------------------------------
-    const dropdownFields = [
-      'Branch',
-      'Business center',
-      'Sales staff',
-      'Station code',
-      'Cablebox code',
-      'Status'
-    ];
+    // Step 8: Verify dropdown "Branch" contains "All"
+    await expect(page.locator('form formly-field, form .ant-form-item, form nz-form-item, form .ant-col').filter({ has: page.getByText('Branch', { exact: true }) }).locator('nz-select:not(.ant-pagination-options-size-changer), .ant-select:not(.ant-pagination-options-size-changer)').first()).toContainText('All', { timeout: 10_000 });
 
-    for (const fieldName of dropdownFields) {
-      const fieldContainer = page.locator('form formly-field, form .ant-form-item, form nz-form-item, form .ant-col')
-        .filter({ has: page.getByText(fieldName, { exact: true }) })
-        .first();
+    // Step 9: Verify dropdown "Business center" contains "All"
+    await expect(page.locator('form formly-field, form .ant-form-item, form nz-form-item, form .ant-col').filter({ has: page.getByText('Business center', { exact: true }) }).locator('nz-select:not(.ant-pagination-options-size-changer), .ant-select:not(.ant-pagination-options-size-changer)').first()).toContainText('All', { timeout: 10_000 });
 
-      const targetSelect = fieldContainer.locator('nz-select:not(.ant-pagination-options-size-changer), .ant-select:not(.ant-pagination-options-size-changer)').first();
+    // Step 10: Verify dropdown "Sales staff" contains "All"
+    await expect(page.locator('form formly-field, form .ant-form-item, form nz-form-item, form .ant-col').filter({ has: page.getByText('Sales staff', { exact: true }) }).locator('nz-select:not(.ant-pagination-options-size-changer), .ant-select:not(.ant-pagination-options-size-changer)').first()).toContainText('All', { timeout: 10_000 });
 
-      await expect(targetSelect).toBeVisible({ timeout: 10_000 });
-      await expect(targetSelect).toContainText('All');
-    }
+    // Step 11: Verify dropdown "Station code" contains "All"
+    await expect(page.locator('form formly-field, form .ant-form-item, form nz-form-item, form .ant-col').filter({ has: page.getByText('Station code', { exact: true }) }).locator('nz-select:not(.ant-pagination-options-size-changer), .ant-select:not(.ant-pagination-options-size-changer)').first()).toContainText('All', { timeout: 10_000 });
 
-    // ---------------------------------------------------------------
-    // 2. Verify Extra Buttons: Search & Reset
-    // ---------------------------------------------------------------
-    const searchBtn = page.getByRole('button', { name: /search/i }).or(page.locator('button:has-text("Search")')).first();
-    await expect(searchBtn).toBeVisible({ timeout: 10_000 });
+    // Step 12: Verify dropdown "Cablebox code" contains "All"
+    await expect(page.locator('form formly-field, form .ant-form-item, form nz-form-item, form .ant-col').filter({ has: page.getByText('Cablebox code', { exact: true }) }).locator('nz-select:not(.ant-pagination-options-size-changer), .ant-select:not(.ant-pagination-options-size-changer)').first()).toContainText('All', { timeout: 10_000 });
 
-    const resetBtn = page.getByRole('button', { name: /reset/i }).or(page.locator('button:has-text("Reset")')).first();
-    await expect(resetBtn).toBeVisible({ timeout: 10_000 });
+    // Step 13: Verify dropdown "Status" contains "All"
+    await expect(page.locator('form formly-field, form .ant-form-item, form nz-form-item, form .ant-col').filter({ has: page.getByText('Status', { exact: true }) }).locator('nz-select:not(.ant-pagination-options-size-changer), .ant-select:not(.ant-pagination-options-size-changer)').first()).toContainText('All', { timeout: 10_000 });
 
-    // ---------------------------------------------------------------
-    // 3. Verify Other Functions: + Create, Import files, Export files
-    // ---------------------------------------------------------------
-    const createBtn = page.getByRole('button', { name: /\+?\s*create/i }).or(page.locator('button:has-text("+ Create"), button:has-text("Create")')).first();
-    await expect(createBtn).toBeVisible({ timeout: 10_000 });
+    // Step 14: Verify text "Search" is visible
+    await expect(page.getByRole('button', { name: 'Search' }).or(page.getByText('Search')).or(page.locator('button:has-text("Search"), a:has-text("Search")')).first()).toBeVisible({ timeout: 10_000 });
 
-    const importBtn = page.getByRole('button', { name: /import files/i }).or(page.locator('button:has-text("Import files"), a:has-text("Import files")')).first();
-    await expect(importBtn).toBeVisible({ timeout: 10_000 });
+    // Step 15: Verify text "Reset" is visible
+    await expect(page.getByRole('button', { name: 'Reset' }).or(page.getByText('Reset')).or(page.locator('button:has-text("Reset"), a:has-text("Reset")')).first()).toBeVisible({ timeout: 10_000 });
 
-    const exportBtn = page.getByRole('button', { name: /export files/i }).or(page.locator('button:has-text("Export files"), a:has-text("Export files")')).first();
-    await expect(exportBtn).toBeVisible({ timeout: 10_000 });
+    // Step 16: Verify text "+ Create" is visible
+    await expect(page.getByRole('button', { name: '+ Create' }).or(page.getByText('+ Create')).or(page.locator('button:has-text("+ Create"), button:has-text("Create")')).first()).toBeVisible({ timeout: 10_000 });
 
+    // Step 17: Verify text "Import files" is visible
+    await expect(page.getByRole('button', { name: 'Import files' }).or(page.getByText('Import files')).or(page.locator('button:has-text("Import files"), a:has-text("Import files")')).first()).toBeVisible({ timeout: 10_000 });
+
+    // Step 18: Verify text "Export files" is visible
+    await expect(page.getByRole('button', { name: 'Export files' }).or(page.getByText('Export files')).or(page.locator('button:has-text("Export files"), a:has-text("Export files")')).first()).toBeVisible({ timeout: 10_000 });
 
     // Capture End Screenshot (After Action)
     const afterShot = testInfo.outputPath('after-action.png');

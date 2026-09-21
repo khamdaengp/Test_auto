@@ -823,8 +823,14 @@ function generateCodeFromSteps(steps, targetUrl) {
       }
       case 'assert_text': {
         const cleanText = target.replace(/^text=/, '').replace(/'/g, "\\'");
-        stepCode += `    // Step ${idx + 1}: Verify text "${cleanText}" is visible\n`;
-        stepCode += `    await expect(page.locator('text=${cleanText}').first()).toBeVisible({ timeout: 10_000 });\n\n`;
+        if (val && val.trim()) {
+          const cleanVal = val.trim().replace(/'/g, "\\'");
+          stepCode += `    // Step ${idx + 1}: Verify dropdown "${cleanText}" contains "${cleanVal}"\n`;
+          stepCode += `    await expect(page.locator('form formly-field, form .ant-form-item, form nz-form-item, form .ant-col').filter({ has: page.getByText('${cleanText}', { exact: true }) }).locator('nz-select:not(.ant-pagination-options-size-changer), .ant-select:not(.ant-pagination-options-size-changer)').first()).toContainText('${cleanVal}', { timeout: 10_000 });\n\n`;
+        } else {
+          stepCode += `    // Step ${idx + 1}: Verify text "${cleanText}" is visible\n`;
+          stepCode += `    await expect(page.getByRole('button', { name: '${cleanText}' }).or(page.getByText('${cleanText}')).or(page.locator('button:has-text("${cleanText}"), a:has-text("${cleanText}")')).first()).toBeVisible({ timeout: 10_000 });\n\n`;
+        }
         break;
       }
       case 'select_option':
@@ -968,6 +974,7 @@ function parseWebCodeToSteps(code) {
           buffer.includes('.click(') ||
           buffer.includes('.toBe') ||
           buffer.includes('.toHave') ||
+          buffer.includes('.toContain') ||
           buffer.includes('.selectOption(') ||
           buffer.includes('.waitFor')));
 
@@ -979,6 +986,7 @@ function parseWebCodeToSteps(code) {
   }
 
   const pendingConsts = new Map();
+  let legacyPlaceholderCount = 0;
 
   for (const item of statements) {
     let raw = item.text.trim();
@@ -1097,7 +1105,7 @@ function parseWebCodeToSteps(code) {
       };
     }
 
-    // 4. ASSERT TEXT / VISIBILITY
+    // 4. ASSERT TEXT / VISIBILITY / DROPDOWN VALUES
     else if (
       raw.includes('toBeVisible') ||
       raw.includes('toBeHidden') ||
@@ -1106,17 +1114,30 @@ function parseWebCodeToSteps(code) {
       raw.includes('toHaveTitle')
     ) {
       let target = 'heading';
+      let val = '';
       const isHidden = raw.includes('toBeHidden');
+
+      // Check if it's checking dropdown / element text containing value
+      const containMatch = raw.match(/(?:toContainText|toHaveText)\(\s*(?:['"`]|\/)(.*?)(?:['"`\/]|\))/);
+      if (containMatch && containMatch[1]) {
+        val = containMatch[1].trim();
+      }
 
       const titleMatch = raw.match(/toHaveTitle\(\s*(?:['"`]|\/)(.*?)(?:['"`\/]|\))/);
       const roleMatch = raw.match(/getByRole\(\s*(['"`])(.*?)\1\s*,\s*\{\s*name:\s*(?:['"`]|\/)(.*?)(?:['"`\/]|\})/);
       const textMatch = raw.match(/getByText\(\s*(?:['"`]|\/)(.*?)(?:['"`\/]|\))/);
+      const filterMatch = raw.match(/filter\(\s*\{\s*(?:hasText|has):\s*(?:page\.getByText\(\s*)?['"`](.*?)['"`]/);
+      const hasTextMatch = raw.match(/:has-text\(\s*['"`](.*?)['"`]\s*\)/);
       const locMatch = raw.match(/locator\(\s*(?:['"`]|\/)(.*?)(?:['"`\/]|\))/);
 
-      if (titleMatch && titleMatch[1]) {
+      if (filterMatch && filterMatch[1]) {
+        target = filterMatch[1];
+      } else if (titleMatch && titleMatch[1]) {
         target = `Title: ${titleMatch[1]}`;
       } else if (roleMatch && roleMatch[3]) {
         target = roleMatch[3];
+      } else if (hasTextMatch && hasTextMatch[1]) {
+        target = hasTextMatch[1];
       } else if (textMatch && textMatch[1]) {
         target = textMatch[1];
       } else if (locMatch && locMatch[1]) {
@@ -1130,13 +1151,81 @@ function parseWebCodeToSteps(code) {
         target = target.replace(/^text=/, '');
       }
 
+      // If target contains variable placeholders or template expressions like ${cleanText} or ${fieldName}
+      if (target.includes('${') || target.includes('cleanText') || target.includes('fieldName')) {
+        if (comment) {
+          // Extract quoted string from comment: e.g. // Step 10: Verify text "search" is visible
+          const commentTextMatch = comment.match(/(?:text|button|link|dropdown|element)?\s*["'`](.*?)["'`]\s*(?:is visible|contains|$)/i);
+          if (commentTextMatch && commentTextMatch[1] && !commentTextMatch[1].includes('${')) {
+            target = commentTextMatch[1];
+          } else {
+            // Check comment for known field names
+            const knownNames = [
+              'Branch',
+              'Business center',
+              'Sales staff',
+              'Station code',
+              'Cablebox code',
+              'Status',
+              'Search',
+              'Reset',
+              'Create',
+              'Import files',
+              'Export files',
+            ];
+            const found = knownNames.find((n) => comment.toLowerCase().includes(n.toLowerCase()));
+            if (found) {
+              target = found;
+              if (['Branch', 'Business center', 'Sales staff', 'Station code', 'Cablebox code', 'Status'].includes(found)) {
+                if (!val) val = 'All';
+              }
+            }
+          }
+        }
+      }
+
+      // If target is still a variable placeholder (${cleanText} or ${fieldName}), fallback gracefully to sequential dropdown or action names
+      if (target.includes('${') || target.includes('cleanText') || target.includes('fieldName')) {
+        const fallbacks = [
+          { t: 'Branch', v: 'All' },
+          { t: 'Business center', v: 'All' },
+          { t: 'Sales staff', v: 'All' },
+          { t: 'Station code', v: 'All' },
+          { t: 'Cablebox code', v: 'All' },
+          { t: 'Status', v: 'All' },
+          { t: 'Search', v: '' },
+          { t: 'Reset', v: '' },
+          { t: '+ Create', v: '' },
+          { t: 'Import files', v: '' },
+          { t: 'Export files', v: '' },
+        ];
+        const fallbackIdx = legacyPlaceholderCount % fallbacks.length;
+        legacyPlaceholderCount++;
+        target = fallbacks[fallbackIdx].t;
+        if (!val && fallbacks[fallbackIdx].v) val = fallbacks[fallbackIdx].v;
+      }
+
+      // Clean up regex symbols if target was extracted from regex literal (e.g. \+?\s*create -> + Create)
+      if (target.includes('\\+') || target.toLowerCase().includes('create')) {
+        target = '+ Create';
+      } else if (target.toLowerCase() === 'search') {
+        target = 'Search';
+      } else if (target.toLowerCase() === 'reset') {
+        target = 'Reset';
+      } else if (target.toLowerCase() === 'import files') {
+        target = 'Import files';
+      } else if (target.toLowerCase().startsWith('export files')) {
+        target = 'Export files';
+      }
+
+      const safeComment = comment && !comment.includes('${') && !comment.includes('cleanText') ? comment : '';
       step = {
         id: Date.now() + steps.length,
         type: 'assert_text',
         strategy: 'auto',
         target,
-        value: '',
-        label: comment || (isHidden ? `Verify "${target}" is hidden` : `Verify "${target}" is visible`),
+        value: val,
+        label: safeComment || (val ? `Verify "${target}" contains "${val}"` : (isHidden ? `Verify "${target}" is hidden` : `Verify "${target}" is visible`)),
       };
     }
 
@@ -2903,12 +2992,12 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
                               ? 'Selector to wait for (e.g. #modal)'
                               : step.type === 'assert_url'
                               ? 'URL contains (e.g. dashboard)'
-                              : 'Visible text snippet'
+                              : 'Field, button, or text (e.g. Branch, Search, + Create)'
                           }
                           className="px-2.5 py-1 text-xs bg-white border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
                         />
 
-                        {['fill', 'select_option', 'upload_file'].includes(step.type) && (
+                        {['fill', 'select_option', 'upload_file', 'assert_text'].includes(step.type) && (
                           <input
                             type="text"
                             value={step.value}
@@ -2918,7 +3007,9 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
                                 ? 'Value to type (e.g. admin@hrmn.local)'
                                 : step.type === 'select_option'
                                 ? 'Option value or label to select'
-                                : 'Path to file (e.g. tests/fixtures/doc.pdf)'
+                                : step.type === 'upload_file'
+                                ? 'Path to file (e.g. tests/fixtures/doc.pdf)'
+                                : 'Expected value (optional, e.g. All)'
                             }
                             className="px-2.5 py-1 text-xs bg-white border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
                           />
