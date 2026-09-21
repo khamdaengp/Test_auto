@@ -829,7 +829,12 @@ function generateCodeFromSteps(steps, targetUrl) {
           stepCode += `    await expect(page.locator('form formly-field, form .ant-form-item, form nz-form-item, form .ant-col').filter({ has: page.getByText('${cleanText}', { exact: true }) }).locator('nz-select:not(.ant-pagination-options-size-changer), .ant-select:not(.ant-pagination-options-size-changer)').first()).toContainText('${cleanVal}', { timeout: 10_000 });\n\n`;
         } else {
           stepCode += `    // Step ${idx + 1}: Verify text "${cleanText}" is visible\n`;
-          stepCode += `    await expect(page.getByRole('button', { name: '${cleanText}' }).or(page.getByText('${cleanText}')).or(page.locator('button:has-text("${cleanText}"), a:has-text("${cleanText}")')).first()).toBeVisible({ timeout: 10_000 });\n\n`;
+          const baseName = cleanText.replace(/^[+\s]+/, '').trim();
+          if (baseName && baseName !== cleanText) {
+            stepCode += `    await expect(page.getByRole('button', { name: '${baseName}', exact: true }).or(page.locator('button:has-text("${baseName}")')).or(page.getByRole('button', { name: '${cleanText}' })).or(page.locator('button:has-text("${cleanText}")')).first()).toBeVisible({ timeout: 10_000 });\n\n`;
+          } else {
+            stepCode += `    await expect(page.getByRole('button', { name: '${cleanText}', exact: true }).or(page.locator('button:has-text("${cleanText}"), a:has-text("${cleanText}")')).first()).toBeVisible({ timeout: 10_000 });\n\n`;
+          }
         }
         break;
       }

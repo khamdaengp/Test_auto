@@ -59,13 +59,14 @@ test.describe('Automated Visual Scenario', () => {
     await expect(page.getByRole('button', { name: 'Reset' }).or(page.getByText('Reset')).or(page.locator('button:has-text("Reset"), a:has-text("Reset")')).first()).toBeVisible({ timeout: 10_000 });
 
     // Step 16: Verify text "+ Create" is visible
-    await expect(page.getByRole('button', { name: '+ Create' }).or(page.getByText('+ Create')).or(page.locator('button:has-text("+ Create"), button:has-text("Create")')).first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('button', { name: 'Create', exact: true }).or(page.locator('button:has-text("Create")')).or(page.getByRole('button', { name: '+ Create' })).first()).toBeVisible({ timeout: 10_000 });
 
     // Step 17: Verify text "Import files" is visible
     await expect(page.getByRole('button', { name: 'Import files' }).or(page.getByText('Import files')).or(page.locator('button:has-text("Import files"), a:has-text("Import files")')).first()).toBeVisible({ timeout: 10_000 });
 
     // Step 18: Verify text "Export files" is visible
     await expect(page.getByRole('button', { name: 'Export files' }).or(page.getByText('Export files')).or(page.locator('button:has-text("Export files"), a:has-text("Export files")')).first()).toBeVisible({ timeout: 10_000 });
+
 
     // Capture End Screenshot (After Action)
     const afterShot = testInfo.outputPath('after-action.png');
