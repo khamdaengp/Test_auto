@@ -154,6 +154,15 @@ async function createSuite(data) {
   // Write spec file
   fs.writeFileSync(absoluteFilePath, code, 'utf8');
 
+  // Validate and sanitize target project ID
+  let verifiedProjectId = null;
+  if (projectId && projectId !== 'all') {
+    const pCheck = await db.query('SELECT id FROM projects WHERE id = $1', [projectId]);
+    if (pCheck.rows.length > 0) {
+      verifiedProjectId = pCheck.rows[0].id;
+    }
+  }
+
   // Insert into PostgreSQL
   const res = await db.query(
     `INSERT INTO test_suites (
@@ -164,7 +173,7 @@ async function createSuite(data) {
      RETURNING *`,
     [
       id,
-      projectId,
+      verifiedProjectId,
       name,
       type,
       description,
@@ -186,7 +195,10 @@ async function createSuite(data) {
   // Sync in-memory cron scheduler
   scheduler.syncSuiteSchedule(newSuite);
 
-  return newSuite;
+  return {
+    ...newSuite,
+    projectId: newSuite.project_id,
+  };
 }
 
 /**
@@ -203,7 +215,17 @@ async function updateSuite(id, data) {
   const targetUrl = data.targetUrl !== undefined ? data.targetUrl : existing.targetUrl;
   const code = data.code !== undefined ? data.code : existing.code;
   const tags = data.tags || existing.tags;
-  const projectId = data.projectId !== undefined ? data.projectId : existing.projectId;
+  
+  let verifiedProjectId = existing.projectId;
+  if (data.projectId !== undefined) {
+    if (data.projectId && data.projectId !== 'all') {
+      const pCheck = await db.query('SELECT id FROM projects WHERE id = $1', [data.projectId]);
+      verifiedProjectId = pCheck.rows.length > 0 ? pCheck.rows[0].id : null;
+    } else {
+      verifiedProjectId = null;
+    }
+  }
+
   const scheduleCron = data.scheduleCron !== undefined ? data.scheduleCron : existing.scheduleCron;
   const isScheduledEnabled = data.isScheduledEnabled !== undefined ? data.isScheduledEnabled : existing.isScheduledEnabled;
   const environmentProfile = data.environmentProfile !== undefined ? data.environmentProfile : existing.environmentProfile;
@@ -234,7 +256,7 @@ async function updateSuite(id, data) {
       targetUrl,
       code,
       tags,
-      projectId,
+      verifiedProjectId,
       scheduleCron,
       isScheduledEnabled,
       environmentProfile,
@@ -249,7 +271,10 @@ async function updateSuite(id, data) {
   // Sync in-memory cron scheduler
   scheduler.syncSuiteSchedule(updatedSuite);
 
-  return updatedSuite;
+  return {
+    ...updatedSuite,
+    projectId: updatedSuite.project_id,
+  };
 }
 
 /**

@@ -585,13 +585,24 @@ export default function TestSuitesTable({
                         {suite.targetUrl || suite.testFile || 'Default Target'}
                       </div>
                       <div className="flex items-center space-x-1.5 mt-0.5">
-                        {suite.projectId && (
-                          <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                            {projects.find((p) => p.id === suite.projectId)?.name || suite.projectId}
+                        {suite.projectId ? (
+                          <span
+                            className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200"
+                            title={`Linked Project ID: ${suite.projectId}`}
+                          >
+                            <Layers className="w-2.5 h-2.5 mr-1 text-indigo-500" />
+                            <span>{projects.find((p) => p.id === suite.projectId)?.name || suite.projectId}</span>
                           </span>
-                        )}
+                        ) : !suite.isSystem ? (
+                          <span
+                            className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-medium bg-slate-100 text-slate-500 border border-slate-200"
+                            title="Global suite (not assigned to any specific project)"
+                          >
+                            Global
+                          </span>
+                        ) : null}
                         {suite.project && (
-                          <span className="text-[10px] text-slate-500 font-medium font-mono">
+                          <span className="text-[10px] text-slate-400 font-medium font-mono">
                             {suite.project}
                           </span>
                         )}

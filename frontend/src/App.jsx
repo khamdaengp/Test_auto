@@ -668,12 +668,15 @@ export default function App() {
   };
 
   const handleDeleteProject = (project) => {
+    const suitesForProj = suites.filter((s) => s.projectId === project.id);
+    const suiteCountText = suitesForProj.length === 1 ? '1 associated test suite' : `${suitesForProj.length} associated test suites`;
+
     setConfirmModal({
       isOpen: true,
-      title: 'Delete Software Project',
-      description: `Are you sure you want to delete project "${project.name}"? Active test suites will remain in the database.`,
+      title: 'Delete Software Project & Associated Suites',
+      description: `Are you sure you want to delete project "${project.name}"? All ${suiteCountText}, their Playwright spec files on disk, and execution history will be permanently deleted.`,
       itemName: `${project.name} (${project.id})`,
-      confirmLabel: 'Delete Project',
+      confirmLabel: 'Delete Project & Suites',
       variant: 'danger',
       onConfirm: async () => {
         try {
@@ -686,6 +689,12 @@ export default function App() {
             } catch {}
             return nextProjects;
           });
+
+          // Cascade delete from local state: remove all suites belonging to this project
+          setSuites((prev) => prev.filter((s) => s.projectId !== project.id));
+          // Remove test runs belonging to this project
+          setRuns((prev) => prev.filter((r) => r.projectId !== project.id));
+
           if (selectedProjectId === project.id) {
             handleSelectProject('all');
             await loadData('all');
@@ -693,7 +702,7 @@ export default function App() {
             await loadData(selectedProjectId);
           }
           setConfirmModal((prev) => ({ ...prev, isOpen: false, isLoading: false }));
-          showToast(`Project "${project.name}" was deleted.`, 'success');
+          showToast(`Project "${project.name}" and ${suitesForProj.length} test suite(s) were permanently deleted.`, 'success');
         } catch (err) {
           setConfirmModal((prev) => ({ ...prev, isOpen: false, isLoading: false }));
           showToast(err.message || 'Failed to delete project', 'error');

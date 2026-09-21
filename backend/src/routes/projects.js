@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
+const { deleteSuite } = require('../services/testRunner');
 
 /**
  * GET /api/projects - List all registered software projects
@@ -73,15 +74,45 @@ router.put('/:id', async (req, res) => {
 });
 
 /**
- * DELETE /api/projects/:id - Delete a project
+ * DELETE /api/projects/:id - Delete a project and all its associated test suites
  */
 router.delete('/:id', async (req, res) => {
   try {
-    const { rows } = await db.query('DELETE FROM projects WHERE id = $1 RETURNING id', [req.params.id]);
-    if (rows.length === 0) {
+    const projectId = req.params.id;
+
+    // 1. Verify project exists
+    const projCheck = await db.query('SELECT * FROM projects WHERE id = $1', [projectId]);
+    if (projCheck.rows.length === 0) {
       return res.status(404).json({ error: 'Project not found' });
     }
-    res.json({ message: 'Project deleted successfully' });
+    const targetProject = projCheck.rows[0];
+
+    // 2. Query all test suites belonging to this project
+    const { rows: suitesToDelete } = await db.query(
+      'SELECT id, name, test_file, is_system FROM test_suites WHERE project_id = $1',
+      [projectId]
+    );
+
+    // 3. Delete each associated test suite (removes cron schedule, deletes spec file on disk)
+    for (const suite of suitesToDelete) {
+      try {
+        await deleteSuite(suite.id);
+      } catch (suiteErr) {
+        console.warn(`[Projects] Note while deleting suite ${suite.id} for project ${projectId}:`, suiteErr.message);
+      }
+    }
+
+    // 4. Delete any remaining test runs associated with this project
+    await db.query('DELETE FROM test_runs WHERE project_id = $1', [projectId]);
+
+    // 5. Delete the project record
+    await db.query('DELETE FROM projects WHERE id = $1', [projectId]);
+
+    res.json({
+      message: `Project "${targetProject.name}" and ${suitesToDelete.length} associated test suite(s) deleted successfully`,
+      deletedProjectId: projectId,
+      deletedSuitesCount: suitesToDelete.length,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

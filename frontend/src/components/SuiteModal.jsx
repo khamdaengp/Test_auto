@@ -904,8 +904,8 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
     name: '',
     type: 'e2e',
     project: 'chromium',
-    projectId: 'proj-hrmn',
-    targetUrl: 'http://localhost:5175/login',
+    projectId: '',
+    targetUrl: '',
     description: '',
     tags: '',
     code: '',
@@ -944,12 +944,15 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
 
   useEffect(() => {
     const activeProj =
-      projects.find((p) => p.id === (selectedProjectId !== 'all' ? selectedProjectId : 'proj-hrmn')) ||
+      projects.find((p) => p.id === (selectedProjectId !== 'all' ? selectedProjectId : projects[0]?.id)) ||
       projects[0];
-    const defaultUrl = activeProj?.base_url || 'http://localhost:5175/login';
+    const defaultUrl = activeProj?.base_url || 'http://localhost:3000';
     const initialProjectId =
-      suite?.projectId ||
-      (selectedProjectId !== 'all' ? selectedProjectId : (projects[0]?.id || 'proj-hrmn'));
+      (suite?.projectId && projects.some((p) => p.id === suite.projectId))
+        ? suite.projectId
+        : (selectedProjectId !== 'all' && projects.some((p) => p.id === selectedProjectId))
+        ? selectedProjectId
+        : (projects[0]?.id || '');
 
     if (suite && suite.isNewWithDefaultType) {
       const initialType = suite.type || 'e2e';
@@ -1359,7 +1362,7 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
       name: formData.name.trim(),
       type: formData.type,
       project: formData.project,
-      projectId: formData.projectId,
+      projectId: formData.projectId && formData.projectId !== 'all' ? formData.projectId : null,
       targetUrl: formData.targetUrl.trim(),
       description: formData.description.trim(),
       tags: formData.tags
@@ -1671,8 +1674,13 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Target Project / Workspace
+              <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center justify-between">
+                <span>Target Project / Workspace</span>
+                {formData.projectId && (
+                  <span className="text-[10px] font-mono text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">
+                    Linked to: {projects.find((p) => p.id === formData.projectId)?.name || formData.projectId}
+                  </span>
+                )}
               </label>
               <select
                 value={formData.projectId || ''}
@@ -1693,9 +1701,10 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
                 }}
                 className="w-full px-3.5 py-2 bg-white border border-slate-300 rounded-lg text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 shadow-sm font-medium"
               >
+                <option value="">-- No Project (Global Suite) --</option>
                 {projects.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.name}
+                    {p.name} ({p.id})
                   </option>
                 ))}
               </select>

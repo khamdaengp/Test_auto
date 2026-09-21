@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS projects (
 
 CREATE TABLE IF NOT EXISTS test_suites (
     id VARCHAR(64) PRIMARY KEY,
-    project_id VARCHAR(64) REFERENCES projects(id) ON DELETE SET NULL,
+    project_id VARCHAR(64) REFERENCES projects(id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
     type VARCHAR(64) NOT NULL,
     description TEXT,
@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS test_suites (
 
 CREATE TABLE IF NOT EXISTS test_runs (
     id VARCHAR(64) PRIMARY KEY,
-    project_id VARCHAR(64) REFERENCES projects(id) ON DELETE SET NULL,
+    project_id VARCHAR(64) REFERENCES projects(id) ON DELETE CASCADE,
     suite_id VARCHAR(128) NOT NULL,
     suite_name VARCHAR(255) NOT NULL,
     type VARCHAR(64) NOT NULL,
