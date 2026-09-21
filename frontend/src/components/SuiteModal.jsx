@@ -894,8 +894,420 @@ ${stepCode || '    // No steps defined\n'}
     await page.screenshot({ path: afterShot, fullPage: true });
     await testInfo.attach('after-action', { path: afterShot, contentType: 'image/png' });
   });
-});
-`;
+});`;
+}
+
+// Reverse Parser: converts Playwright Code Script into Visual Steps
+function parseCodeToVisualSteps(code, type = 'e2e') {
+  if (!code || typeof code !== 'string') return [];
+  if (type === 'api') {
+    return parseApiCodeToSteps(code);
+  } else if (type === 'database') {
+    return parseDatabaseCodeToSteps(code);
+  } else {
+    return parseWebCodeToSteps(code);
+  }
+}
+
+function parseWebCodeToSteps(code) {
+  const steps = [];
+  if (!code || typeof code !== 'string') return steps;
+
+  const rawLines = code.split(/\r?\n/);
+  const statements = [];
+  let buffer = '';
+  let currentComment = '';
+
+  for (let i = 0; i < rawLines.length; i++) {
+    const line = rawLines[i].trim();
+    if (!line) continue;
+
+    if (line.startsWith('//')) {
+      const c = line.replace(/^\/\/\s*/, '').trim();
+      if (
+        !c.toLowerCase().includes('before-action') &&
+        !c.toLowerCase().includes('after-action') &&
+        !c.toLowerCase().includes('screenshot')
+      ) {
+        currentComment = c;
+      }
+      continue;
+    }
+
+    if (
+      line.startsWith('import ') ||
+      line.startsWith('test.describe') ||
+      line.startsWith('test(') ||
+      line.startsWith('test.setTimeout') ||
+      line.includes('outputPath(') ||
+      line.includes('screenshot(') ||
+      line.includes('attach(') ||
+      line === '});' ||
+      line === '}' ||
+      line === 'try {' ||
+      line === '} finally {' ||
+      line === 'catch'
+    ) {
+      currentComment = '';
+      continue;
+    }
+
+    buffer = buffer ? buffer + ' ' + line : line;
+
+    const openParens = (buffer.match(/\(/g) || []).length;
+    const closeParens = (buffer.match(/\)/g) || []).length;
+    const isTerminated =
+      buffer.endsWith(';') ||
+      (openParens <= closeParens &&
+        (buffer.includes('.fill(') ||
+          buffer.includes('.click(') ||
+          buffer.includes('.toBe') ||
+          buffer.includes('.toHave') ||
+          buffer.includes('.selectOption(') ||
+          buffer.includes('.waitFor')));
+
+    if (isTerminated || i === rawLines.length - 1) {
+      statements.push({ text: buffer, comment: currentComment });
+      buffer = '';
+      currentComment = '';
+    }
+  }
+
+  const pendingConsts = new Map();
+
+  for (const item of statements) {
+    let raw = item.text.trim();
+    const comment = item.comment;
+
+    const varMatch = raw.match(/(?:const|let|var)\s+([a-zA-Z0-9_$]+)\s*=\s*([^;]+);?/);
+    if (varMatch) {
+      pendingConsts.set(varMatch[1], varMatch[2]);
+    }
+
+    for (const [varName, expr] of pendingConsts.entries()) {
+      if (raw.includes(varName)) {
+        raw = raw.replace(new RegExp('\\b' + varName + '\\b', 'g'), expr);
+      }
+    }
+
+    let step = null;
+
+    // 1. FILL
+    const fillMatch = raw.match(/\.fill\(\s*(['"`])(.*?)\1\s*\)/);
+    if (fillMatch) {
+      const val = fillMatch[2];
+      let target = 'Input Field';
+      let strategy = 'auto';
+
+      const phMatch = raw.match(/getByPlaceholder\(\s*(?:['"`]|\/)(.*?)(?:['"`\/]|\))/);
+      const labelMatch = raw.match(/getByLabel\(\s*(?:['"`]|\/)(.*?)(?:['"`\/]|\))/);
+      const testidMatch = raw.match(/getByTestId\(\s*(?:['"`]|\/)(.*?)(?:['"`\/]|\))/);
+      const locMatch = raw.match(/locator\(\s*(?:['"`]|\/)(.*?)(?:['"`\/]|\))/);
+      const nameMatch = raw.match(/input\[name=(['"`])(.*?)\1\]/);
+
+      if (phMatch && phMatch[1]) {
+        target = phMatch[1];
+        strategy = 'placeholder';
+      } else if (labelMatch && labelMatch[1]) {
+        target = labelMatch[1];
+        strategy = 'label';
+      } else if (testidMatch && testidMatch[1]) {
+        target = testidMatch[1];
+        strategy = 'testid';
+      } else if (locMatch && locMatch[1]) {
+        target = locMatch[1];
+        strategy = 'css';
+      } else if (nameMatch && nameMatch[2]) {
+        target = nameMatch[2];
+        strategy = 'auto';
+      } else {
+        const firstStr = raw.match(/(['"`])([^'"`]+)\1/);
+        if (firstStr && firstStr[2] !== val) target = firstStr[2];
+      }
+
+      step = {
+        id: Date.now() + steps.length,
+        type: 'fill',
+        strategy,
+        target,
+        value: val,
+        label: comment || `Fill "${target}" with "${val}"`,
+      };
+    }
+
+    // 2. CLICK / TAP
+    else if (raw.includes('.click(') || raw.includes('.tap(')) {
+      let target = 'Button / Element';
+      let strategy = 'auto';
+
+      const roleMatch = raw.match(/getByRole\(\s*(['"`])([a-zA-Z0-9_-]+)\1\s*,\s*\{\s*name:\s*(?:['"`]|\/)(.*?)(?:['"`\/]|\})/);
+      const testidMatch = raw.match(/getByTestId\(\s*(?:['"`]|\/)(.*?)(?:['"`\/]|\))/);
+      const locMatch = raw.match(/locator\(\s*(?:['"`]|\/)(.*?)(?:['"`\/]|\))/);
+      const textMatch = raw.match(/getByText\(\s*(?:['"`]|\/)(.*?)(?:['"`\/]|\))/);
+
+      if (roleMatch && roleMatch[3]) {
+        target = roleMatch[3];
+        strategy = 'role';
+      } else if (testidMatch && testidMatch[1]) {
+        target = testidMatch[1];
+        strategy = 'testid';
+      } else if (locMatch && locMatch[1]) {
+        target = locMatch[1];
+        strategy = 'css';
+      } else if (textMatch && textMatch[1]) {
+        target = textMatch[1];
+        strategy = 'auto';
+      } else {
+        const firstStr = raw.match(/(['"`])([^'"`]+)\1/);
+        if (firstStr) target = firstStr[2];
+      }
+
+      step = {
+        id: Date.now() + steps.length,
+        type: 'click',
+        strategy,
+        target,
+        value: '',
+        label: comment || `Click "${target}"`,
+      };
+    }
+
+    // 3. ASSERT URL
+    else if (raw.includes('toHaveURL')) {
+      let target = 'dashboard';
+      const regexMatch = raw.match(/toHaveURL\(\s*\/(.*?)\/(?:[a-z]*)\s*[,)]/);
+      const strMatch = raw.match(/toHaveURL\(\s*(['"`])(.*?)\1/);
+      if (regexMatch && regexMatch[1]) {
+        target = regexMatch[1].replace(/^\.\*/, '').replace(/\\/g, '');
+      } else if (strMatch && strMatch[2]) {
+        target = strMatch[2];
+      }
+      step = {
+        id: Date.now() + steps.length,
+        type: 'assert_url',
+        strategy: 'auto',
+        target,
+        value: '',
+        label: comment || `Verify URL contains "${target}"`,
+      };
+    }
+
+    // 4. ASSERT TEXT / VISIBILITY
+    else if (
+      raw.includes('toBeVisible') ||
+      raw.includes('toBeHidden') ||
+      raw.includes('toHaveText') ||
+      raw.includes('toContainText') ||
+      raw.includes('toHaveTitle')
+    ) {
+      let target = 'heading';
+      const isHidden = raw.includes('toBeHidden');
+
+      const titleMatch = raw.match(/toHaveTitle\(\s*(?:['"`]|\/)(.*?)(?:['"`\/]|\))/);
+      const roleMatch = raw.match(/getByRole\(\s*(['"`])(.*?)\1\s*,\s*\{\s*name:\s*(?:['"`]|\/)(.*?)(?:['"`\/]|\})/);
+      const textMatch = raw.match(/getByText\(\s*(?:['"`]|\/)(.*?)(?:['"`\/]|\))/);
+      const locMatch = raw.match(/locator\(\s*(?:['"`]|\/)(.*?)(?:['"`\/]|\))/);
+
+      if (titleMatch && titleMatch[1]) {
+        target = `Title: ${titleMatch[1]}`;
+      } else if (roleMatch && roleMatch[3]) {
+        target = roleMatch[3];
+      } else if (textMatch && textMatch[1]) {
+        target = textMatch[1];
+      } else if (locMatch && locMatch[1]) {
+        target = locMatch[1];
+      } else {
+        const firstStr = raw.match(/(['"`])([^'"`]+)\1/);
+        if (firstStr) target = firstStr[2];
+      }
+
+      step = {
+        id: Date.now() + steps.length,
+        type: 'assert_text',
+        strategy: 'auto',
+        target,
+        value: '',
+        label: comment || (isHidden ? `Verify "${target}" is hidden` : `Verify "${target}" is visible`),
+      };
+    }
+
+    // 5. SELECT OPTION
+    else if (raw.includes('.selectOption(')) {
+      const optMatch = raw.match(/selectOption\(\s*\{?\s*(?:label:\s*)?(['"`])(.*?)\1\s*\}?\s*\)/);
+      const locMatch = raw.match(/locator\(\s*(['"`])(.*?)\1\s*\)/);
+      step = {
+        id: Date.now() + steps.length,
+        type: 'select_option',
+        strategy: 'auto',
+        target: locMatch ? locMatch[2] : 'select',
+        value: optMatch ? optMatch[2] : '',
+        label: comment || `Select option "${optMatch ? optMatch[2] : ''}"`,
+      };
+    }
+
+    // 6. UPLOAD FILE
+    else if (raw.includes('.setInputFiles(')) {
+      const fileMatch = raw.match(/setInputFiles\(\s*(['"`])(.*?)\1\s*\)/);
+      const locMatch = raw.match(/locator\(\s*(['"`])(.*?)\1\s*\)/);
+      step = {
+        id: Date.now() + steps.length,
+        type: 'upload_file',
+        strategy: 'auto',
+        target: locMatch ? locMatch[2] : 'input[type="file"]',
+        value: fileMatch ? fileMatch[2] : '',
+        label: comment || `Upload file "${fileMatch ? fileMatch[2] : ''}"`,
+      };
+    }
+
+    // 7. HOVER
+    else if (raw.includes('.hover(')) {
+      const locMatch = raw.match(/(?:locator|getByRole|getByText)\(\s*(['"`])(.*?)\1\s*\)/);
+      const target = locMatch ? locMatch[2] : 'element';
+      step = {
+        id: Date.now() + steps.length,
+        type: 'hover',
+        strategy: 'auto',
+        target,
+        value: '',
+        label: comment || `Hover on "${target}"`,
+      };
+    }
+
+    // 8. CHECK / UNCHECK
+    else if (raw.includes('.check(') || raw.includes('.uncheck(')) {
+      const isUncheck = raw.includes('.uncheck(');
+      const locMatch = raw.match(/(?:locator|getByLabel)\(\s*(['"`])(.*?)\1\s*\)/);
+      const target = locMatch ? locMatch[2] : 'checkbox';
+      step = {
+        id: Date.now() + steps.length,
+        type: isUncheck ? 'uncheck' : 'check',
+        strategy: 'auto',
+        target,
+        value: '',
+        label: comment || (isUncheck ? `Uncheck "${target}"` : `Check "${target}"`),
+      };
+    }
+
+    // 9. WAIT FOR SELECTOR / LOAD STATE
+    else if (raw.includes('waitForSelector(') || raw.includes('waitForLoadState(')) {
+      const selMatch = raw.match(/waitFor(?:Selector|LoadState)\(\s*(['"`])(.*?)\1\s*\)/);
+      const target = selMatch ? selMatch[2] : 'domcontentloaded';
+      step = {
+        id: Date.now() + steps.length,
+        type: 'wait_for_selector',
+        strategy: 'auto',
+        target,
+        value: '',
+        label: comment || `Wait for "${target}"`,
+      };
+    }
+
+    if (step) {
+      steps.push(step);
+    }
+  }
+
+  return steps;
+}
+
+function parseApiCodeToSteps(code) {
+  const steps = [];
+  const reqRegex = /request\.(get|post|put|delete|patch)\(\s*(?:`([^`]+)`|(['"`])(.*?)\3)\s*(?:,\s*\{([\s\S]*?)\}\s*)?\)/gi;
+  let match;
+  let idx = 1;
+  while ((match = reqRegex.exec(code)) !== null) {
+    const method = match[1].toUpperCase();
+    let rawPath = match[2] || match[4] || '/';
+    rawPath = rawPath.replace(/\$\{?[a-zA-Z0-9_]*BASE_URL\}?/gi, '').replace(/^https?:\/\/[^\/]+/, '') || '/';
+
+    const subStr = code.slice(match.index, match.index + 500);
+    const statusMatch = subStr.match(/expect\(.*status\(\)\)\.toBe\((\d+)\)/);
+    const status = statusMatch ? parseInt(statusMatch[1], 10) : (method === 'POST' ? 201 : 200);
+
+    const propMatch = subStr.match(/toHaveProperty\(\s*(['"`])(.*?)\1\s*\)/);
+    const expectedKey = propMatch ? propMatch[2] : 'id';
+
+    let payload = '';
+    if (match[5]) {
+      const dataMatch = match[5].match(/data:\s*(\{[\s\S]*?\})/);
+      if (dataMatch) {
+        payload = dataMatch[1].trim();
+      }
+    }
+
+    steps.push({
+      id: Date.now() + idx,
+      method,
+      path: rawPath.startsWith('/') ? rawPath : `/${rawPath}`,
+      expectedStatus: status,
+      expectedKey,
+      payload,
+      desc: `${method} ${rawPath} - Expect ${status}`,
+    });
+    idx++;
+  }
+
+  return steps;
+}
+
+function parseDatabaseCodeToSteps(code) {
+  const steps = [];
+  const queryRegex = /client\.query\(\s*(?:`([\s\S]*?)`|(['"`])([\s\S]*?)\2)/gi;
+  let match;
+  let idx = 1;
+
+  while ((match = queryRegex.exec(code)) !== null) {
+    const sql = (match[1] || match[3] || '').trim();
+    if (!sql) continue;
+
+    if (sql.includes('SELECT 1 AS ping') || sql.includes('version()')) {
+      steps.push({
+        id: Date.now() + idx,
+        type: 'ping',
+        targetTable: '',
+        expectedRows: '1',
+        assertCol: 'ping',
+        assertVal: '1',
+        desc: 'PostgreSQL connection ping & health check',
+      });
+    } else if (sql.includes('information_schema.tables')) {
+      const tblMatch = sql.match(/table_name\s*=\s*['"]([a-zA-Z0-9_-]+)['"]/);
+      steps.push({
+        id: Date.now() + idx,
+        type: 'table_exists',
+        targetTable: tblMatch ? tblMatch[1] : 'test_suites',
+        expectedRows: '1',
+        assertCol: '',
+        assertVal: '',
+        desc: `Verify table "${tblMatch ? tblMatch[1] : 'table'}" exists`,
+      });
+    } else if (sql.includes('COUNT(') || sql.includes('count(')) {
+      const tblMatch = sql.match(/FROM\s+([a-zA-Z0-9_-]+)/i);
+      steps.push({
+        id: Date.now() + idx,
+        type: 'row_count',
+        targetTable: tblMatch ? tblMatch[1] : 'test_runs',
+        expectedRows: '0',
+        assertCol: '',
+        assertVal: '',
+        desc: `Verify "${tblMatch ? tblMatch[1] : 'table'}" has accessible records`,
+      });
+    } else {
+      steps.push({
+        id: Date.now() + idx,
+        type: 'query',
+        targetTable: '',
+        query: sql,
+        expectedRows: '1',
+        assertCol: '',
+        assertVal: '',
+        desc: `Execute SQL: ${sql.slice(0, 32).replace(/\n/g, ' ')}...`,
+      });
+    }
+    idx++;
+  }
+
+  return steps;
 }
 
 export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = [], selectedProjectId = 'all' }) {
@@ -913,7 +1325,7 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
     isScheduledEnabled: false,
     environmentProfile: 'default',
     workersCount: 1,
-    retryCount: 0,
+    retryCount: 1,
     testDataset: '',
   });
   const [error, setError] = useState(null);
@@ -941,6 +1353,31 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
     { id: 2, type: 'table_exists', targetTable: 'test_suites', expectedRows: '1', assertCol: '', assertVal: '', desc: 'Verify core table "test_suites" exists in schema' },
     { id: 3, type: 'row_count', targetTable: 'test_runs', expectedRows: '0', assertCol: '', assertVal: '', desc: 'Verify "test_runs" table has accessible records' },
   ]);
+
+  // Synchronize Playwright Code Script from Tab 3 into Visual Steps in Tab 1
+  const syncCodeToVisualSteps = (code, type = 'e2e') => {
+    if (!code || typeof code !== 'string') return;
+    try {
+      if (type === 'api') {
+        const parsed = parseApiCodeToSteps(code);
+        if (parsed && parsed.length > 0) {
+          setApiSteps(parsed);
+        }
+      } else if (type === 'database') {
+        const parsed = parseDatabaseCodeToSteps(code);
+        if (parsed && parsed.length > 0) {
+          setDatabaseSteps(parsed);
+        }
+      } else {
+        const parsed = parseWebCodeToSteps(code);
+        if (parsed && parsed.length > 0) {
+          setVisualSteps(parsed);
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to parse Playwright code into visual steps:', err);
+    }
+  };
 
   useEffect(() => {
     const activeProj =
@@ -985,11 +1422,17 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
         isScheduledEnabled: false,
         environmentProfile: 'default',
         workersCount: 1,
-        retryCount: 0,
+        retryCount: 1,
         testDataset: '',
       });
+      syncCodeToVisualSteps(code, initialType);
       setActiveTab('nocode');
     } else if (suite) {
+      const suiteCode = suite.code || STARTER_TEMPLATES[suite.type || 'e2e'](suite.targetUrl || defaultUrl);
+      const suiteRetryCount = suite.retryCount !== undefined && suite.retryCount !== null
+        ? Number(suite.retryCount)
+        : 1;
+
       setFormData({
         name: suite.isDuplicate
           ? (suite.name || '')
@@ -1002,15 +1445,16 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
         targetUrl: suite.targetUrl || defaultUrl,
         description: suite.description || '',
         tags: Array.isArray(suite.tags) ? suite.tags.join(', ') : '',
-        code: suite.code || STARTER_TEMPLATES[suite.type || 'e2e'](suite.targetUrl || defaultUrl),
+        code: suiteCode,
         scheduleCron: suite.scheduleCron || '0 8 * * *',
         isScheduledEnabled: !!suite.isScheduledEnabled,
         environmentProfile: suite.environmentProfile || 'default',
         workersCount: suite.workersCount || 1,
-        retryCount: suite.retryCount || 0,
+        retryCount: suiteRetryCount,
         testDataset: suite.testDataset ? (typeof suite.testDataset === 'string' ? suite.testDataset : JSON.stringify(suite.testDataset, null, 2)) : '',
       });
-      setActiveTab('code');
+      syncCodeToVisualSteps(suiteCode, suite.type || 'e2e');
+      setActiveTab('nocode');
     } else {
       const initialCode = generateCodeFromSteps(visualSteps, defaultUrl);
       setFormData({
@@ -1026,9 +1470,10 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
         isScheduledEnabled: false,
         environmentProfile: 'default',
         workersCount: 1,
-        retryCount: 0,
+        retryCount: 1,
         testDataset: '',
       });
+      syncCodeToVisualSteps(initialCode, 'e2e');
       setActiveTab('nocode');
     }
     setError(null);
@@ -1439,7 +1884,12 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
         <div className="flex border-b border-slate-200 bg-white px-6">
           <button
             type="button"
-            onClick={() => setActiveTab('nocode')}
+            onClick={() => {
+              if (formData.code) {
+                syncCodeToVisualSteps(formData.code, formData.type);
+              }
+              setActiveTab('nocode');
+            }}
             className={`py-3 px-4 text-xs font-semibold border-b-2 flex items-center space-x-2 transition cursor-pointer ${
               activeTab === 'nocode'
                 ? 'border-indigo-600 text-indigo-600 bg-indigo-50/40'
@@ -1751,10 +2201,15 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
             <div className="space-y-4">
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between pb-2 border-b border-slate-200 gap-2">
                 <div>
-                  <h4 className="text-xs font-bold text-slate-900 flex items-center space-x-1.5">
-                    <Webhook className="w-4 h-4 text-emerald-600" />
-                    <span>Visual API Request Steps (No-Code HTTP Builder)</span>
-                  </h4>
+                  <div className="flex items-center space-x-2">
+                    <h4 className="text-xs font-bold text-slate-900 flex items-center space-x-1.5">
+                      <Webhook className="w-4 h-4 text-emerald-600" />
+                      <span>Visual API Request Steps (No-Code HTTP Builder)</span>
+                    </h4>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      Synced from Tab 3 Code
+                    </span>
+                  </div>
                   <p className="text-[11px] text-slate-500 mt-0.5">
                     Define REST endpoints, HTTP methods, expected status codes, and JSON response assertions.
                   </p>
@@ -1762,6 +2217,15 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
 
                 {/* Add API Step Buttons */}
                 <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
+                  <button
+                    type="button"
+                    onClick={() => syncCodeToVisualSteps(formData.code, formData.type)}
+                    className="px-2.5 py-1 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-semibold flex items-center space-x-1 transition cursor-pointer"
+                    title="Parse code in Tab 3 and update visual API steps"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>Re-sync from Code</span>
+                  </button>
                   <button
                     type="button"
                     onClick={() => handleAddApiStep('GET')}
@@ -1970,10 +2434,15 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
             <div className="space-y-4">
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between pb-2 border-b border-slate-200 gap-2">
                 <div>
-                  <h4 className="text-xs font-bold text-slate-900 flex items-center space-x-1.5">
-                    <Database className="w-4 h-4 text-amber-600" />
-                    <span>Visual Database Verification Steps (No-Code SQL Builder)</span>
-                  </h4>
+                  <div className="flex items-center space-x-2">
+                    <h4 className="text-xs font-bold text-slate-900 flex items-center space-x-1.5">
+                      <Database className="w-4 h-4 text-amber-600" />
+                      <span>Visual Database Verification Steps (No-Code SQL Builder)</span>
+                    </h4>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                      Synced from Tab 3 Code
+                    </span>
+                  </div>
                   <p className="text-[11px] text-slate-500 mt-0.5">
                     Configure direct PostgreSQL queries, table existence checks, row count thresholds, and schema assertions.
                   </p>
@@ -1981,6 +2450,15 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
 
                 {/* Add Database Step Buttons */}
                 <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
+                  <button
+                    type="button"
+                    onClick={() => syncCodeToVisualSteps(formData.code, formData.type)}
+                    className="px-2.5 py-1 rounded-md bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 text-xs font-semibold flex items-center space-x-1 transition cursor-pointer"
+                    title="Parse code in Tab 3 and update visual database steps"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>Re-sync from Code</span>
+                  </button>
                   <button
                     type="button"
                     onClick={() => handleAddDbStep('ping')}
@@ -2198,12 +2676,17 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
           {/* TAB 1: VISUAL STEP BUILDER (NO-CODE) - WEB UI */}
           {activeTab === 'nocode' && (formData.type === 'e2e' || formData.type === 'mobile') && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-2 border-b border-slate-200 gap-2">
                 <div>
-                  <h4 className="text-xs font-bold text-slate-900 flex items-center space-x-1.5">
-                    <Wand2 className="w-4 h-4 text-indigo-600" />
-                    <span>Visual Scenario Steps (No Coding Required)</span>
-                  </h4>
+                  <div className="flex items-center space-x-2">
+                    <h4 className="text-xs font-bold text-slate-900 flex items-center space-x-1.5">
+                      <Wand2 className="w-4 h-4 text-indigo-600" />
+                      <span>Visual Scenario Steps (No Coding Required)</span>
+                    </h4>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-indigo-50 text-indigo-700 border border-indigo-200">
+                      Synced from Tab 3 Code
+                    </span>
+                  </div>
                   <p className="text-[11px] text-slate-500 mt-0.5">
                     Configure actions by filling inputs, clicking buttons, and asserting expected results.
                   </p>
@@ -2211,6 +2694,15 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
 
                 {/* Add Step Buttons */}
                 <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
+                  <button
+                    type="button"
+                    onClick={() => syncCodeToVisualSteps(formData.code, formData.type)}
+                    className="px-2.5 py-1 rounded-md bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-semibold flex items-center space-x-1 transition cursor-pointer"
+                    title="Parse code in Tab 3 and update these visual steps"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>Re-sync from Code</span>
+                  </button>
                   <button
                     type="button"
                     onClick={() => handleAddStep('fill')}
@@ -2548,6 +3040,18 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
                       <span>Auto-Add Start & End Screenshots</span>
                     </button>
                   )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      syncCodeToVisualSteps(formData.code, formData.type);
+                      setActiveTab('nocode');
+                    }}
+                    title="Parse current Playwright code and reflect steps in Visual Step Builder"
+                    className="px-2.5 py-1 rounded-md bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-semibold flex items-center space-x-1.5 transition cursor-pointer shadow-2xs"
+                  >
+                    <Wand2 className="w-3 h-3 text-white" />
+                    <span>Sync to Visual Builder (Tab 1)</span>
+                  </button>
                   <button
                     type="button"
                     onClick={handleLoadTemplate}

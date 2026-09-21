@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS test_suites (
     last_scheduled_run TIMESTAMPTZ,
     environment_profile VARCHAR(50) DEFAULT 'default',
     workers_count INTEGER DEFAULT 1,
-    retry_count INTEGER DEFAULT 0,
+    retry_count INTEGER DEFAULT 1,
     test_dataset JSONB,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS test_runs (
     triggered_by VARCHAR(64) DEFAULT 'manual',
     environment VARCHAR(50) DEFAULT 'default',
     workers INTEGER DEFAULT 1,
-    retries INTEGER DEFAULT 0,
+    retries INTEGER DEFAULT 1,
     is_flaky BOOLEAN DEFAULT false,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );

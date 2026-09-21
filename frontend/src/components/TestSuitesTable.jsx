@@ -60,7 +60,7 @@ export default function TestSuitesTable({
   const [runOptions, setRunOptions] = useState({
     environment: 'default',
     workers: 1,
-    retries: 0,
+    retries: 1,
     video: 'retain-on-failure', // 'off' | 'retain-on-failure' | 'on'
     screenshot: 'only-on-failure', // 'off' | 'only-on-failure' | 'on'
   });
@@ -72,7 +72,7 @@ export default function TestSuitesTable({
       setRunOptions({
         environment: suite.environmentProfile || 'default',
         workers: suite.workersCount || 1,
-        retries: suite.retryCount || 0,
+        retries: suite.retryCount !== undefined && suite.retryCount !== null ? suite.retryCount : 1,
         video: 'retain-on-failure',
         screenshot: 'only-on-failure',
       });

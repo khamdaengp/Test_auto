@@ -73,7 +73,7 @@ async function getSuiteById(id) {
       isScheduledEnabled: false,
       environmentProfile: 'default',
       workersCount: 1,
-      retryCount: 0,
+      retryCount: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -114,7 +114,7 @@ async function getSuiteById(id) {
     lastScheduledRun: r.last_scheduled_run,
     environmentProfile: r.environment_profile || 'default',
     workersCount: r.workers_count || 1,
-    retryCount: r.retry_count || 0,
+    retryCount: r.retry_count !== undefined && r.retry_count !== null ? r.retry_count : 1,
     testDataset: r.test_dataset,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
@@ -138,7 +138,7 @@ async function createSuite(data) {
     isScheduledEnabled = false,
     environmentProfile = 'default',
     workersCount = 1,
-    retryCount = 0,
+    retryCount = 1,
     testDataset = null,
   } = data;
   if (!name) throw new Error('Suite name is required');
@@ -319,7 +319,7 @@ async function runTest(suiteId, options = {}, io = null) {
   const reportPath = path.join(config.playwrightRoot, 'test-results', `report-${runId}.json`);
 
   const workers = options.workers ? Number(options.workers) : (suite.workersCount || 1);
-  const retries = options.retries !== undefined ? Number(options.retries) : (suite.retryCount || 0);
+  const retries = options.retries !== undefined ? Number(options.retries) : (suite.retryCount !== undefined && suite.retryCount !== null ? suite.retryCount : 1);
   const environment = options.environment || suite.environmentProfile || 'default';
   const triggeredBy = options.triggeredBy || 'manual';
 
