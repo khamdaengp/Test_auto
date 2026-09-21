@@ -1210,17 +1210,9 @@ function parseWebCodeToSteps(code) {
         if (!val && fallbacks[fallbackIdx].v) val = fallbacks[fallbackIdx].v;
       }
 
-      // Clean up regex symbols if target was extracted from regex literal (e.g. \+?\s*create -> + Create)
-      if (target.includes('\\+') || target.toLowerCase().includes('create')) {
-        target = '+ Create';
-      } else if (target.toLowerCase() === 'search') {
-        target = 'Search';
-      } else if (target.toLowerCase() === 'reset') {
-        target = 'Reset';
-      } else if (target.toLowerCase() === 'import files') {
-        target = 'Import files';
-      } else if (target.toLowerCase().startsWith('export files')) {
-        target = 'Export files';
+      // Clean up raw regex symbols if target was extracted from regex literal (e.g. \+?\s*create -> + Create)
+      if (target.includes('\\+') || target.includes('\\s*')) {
+        target = target.replace(/\\\+/g, '+').replace(/\\s\*/g, ' ').replace(/\s+/g, ' ').trim();
       }
 
       const safeComment = comment && !comment.includes('${') && !comment.includes('cleanText') ? comment : '';
@@ -1901,7 +1893,18 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
       return;
     }
 
-    if (!formData.code.trim()) {
+    let finalCode = formData.code;
+    if (activeTab === 'nocode' || !finalCode || !finalCode.trim()) {
+      if (formData.type === 'api') {
+        finalCode = generateApiCodeFromSteps(apiSteps, formData.targetUrl);
+      } else if (formData.type === 'database') {
+        finalCode = generateDatabaseCodeFromSteps(databaseSteps, formData.targetUrl);
+      } else {
+        finalCode = generateCodeFromSteps(visualSteps, formData.targetUrl);
+      }
+    }
+
+    if (!finalCode || !finalCode.trim()) {
       setError('Test code cannot be empty');
       return;
     }
@@ -1917,7 +1920,7 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
         .split(',')
         .map((t) => t.trim().replace(/^#/, ''))
         .filter(Boolean),
-      code: formData.code,
+      code: finalCode,
       scheduleCron: formData.scheduleCron ? formData.scheduleCron.trim() : null,
       isScheduledEnabled: !!formData.isScheduledEnabled,
       environmentProfile: formData.environmentProfile || 'default',
@@ -2018,7 +2021,18 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
 
           <button
             type="button"
-            onClick={() => setActiveTab('code')}
+            onClick={() => {
+              let latestCode = formData.code;
+              if (formData.type === 'api') {
+                latestCode = generateApiCodeFromSteps(apiSteps, formData.targetUrl);
+              } else if (formData.type === 'database') {
+                latestCode = generateDatabaseCodeFromSteps(databaseSteps, formData.targetUrl);
+              } else {
+                latestCode = generateCodeFromSteps(visualSteps, formData.targetUrl);
+              }
+              setFormData((prev) => ({ ...prev, code: latestCode }));
+              setActiveTab('code');
+            }}
             className={`py-3 px-4 text-xs font-semibold border-b-2 flex items-center space-x-2 transition cursor-pointer ${
               activeTab === 'code'
                 ? 'border-indigo-600 text-indigo-600 bg-indigo-50/40'
