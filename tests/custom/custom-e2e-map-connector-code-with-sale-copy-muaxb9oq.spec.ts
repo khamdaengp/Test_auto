@@ -33,8 +33,9 @@ test.describe('Automated Visual Scenario', () => {
 
     // Step 7: Verify URL contains "map-conn-with-sale-staff"
     await expect(page).toHaveURL(/.*map-conn-with-sale-staff/, { timeout: 15_000 });
+
     // ---------------------------------------------------------------
-    // 1. ກວດສອບຄ່າເລີ່ມຕົ້ນຂອງ Dropdown (Default Value = "All")
+    // 1. Verify Default Dropdown Values (Branch, Business center, Sales staff, Station code, Cablebox code, Status = "All")
     // ---------------------------------------------------------------
     const dropdownFields = [
       'Branch',
@@ -46,7 +47,6 @@ test.describe('Automated Visual Scenario', () => {
     ];
 
     for (const fieldName of dropdownFields) {
-      // Locate the form item inside the search form (excluding table pagination)
       const fieldContainer = page.locator('form formly-field, form .ant-form-item, form nz-form-item, form .ant-col')
         .filter({ has: page.getByText(fieldName, { exact: true }) })
         .first();
@@ -58,35 +58,26 @@ test.describe('Automated Visual Scenario', () => {
     }
 
     // ---------------------------------------------------------------
-    // 2. ກວດສອບປຸ່ມ Reset ຂ້າງປຸ່ມ Search (Extra Buttons)
+    // 2. Verify Extra Buttons: Search & Reset
     // ---------------------------------------------------------------
-    const searchBtn = page.getByRole('button', { name: /search/i })
-      .or(page.locator('button:has-text("Search")'))
-      .first();
+    const searchBtn = page.getByRole('button', { name: /search/i }).or(page.locator('button:has-text("Search")')).first();
     await expect(searchBtn).toBeVisible({ timeout: 10_000 });
 
-    const resetBtn = page.getByRole('button', { name: /reset/i })
-      .or(page.locator('button:has-text("Reset")'))
-      .first();
+    const resetBtn = page.getByRole('button', { name: /reset/i }).or(page.locator('button:has-text("Reset")')).first();
     await expect(resetBtn).toBeVisible({ timeout: 10_000 });
 
     // ---------------------------------------------------------------
-    // 3. ກວດສອບປຸ່ມຟັງຊັນອື່ນໆ ເທິງຕາຕະລາງ (+ Create, Import files, Export files)
+    // 3. Verify Other Functions: + Create, Import files, Export files
     // ---------------------------------------------------------------
-    const createBtn = page.getByRole('button', { name: /\+?\s*create/i })
-      .or(page.locator('button:has-text("+ Create"), button:has-text("Create")'))
-      .first();
+    const createBtn = page.getByRole('button', { name: /\+?\s*create/i }).or(page.locator('button:has-text("+ Create"), button:has-text("Create")')).first();
     await expect(createBtn).toBeVisible({ timeout: 10_000 });
 
-    const importBtn = page.getByRole('button', { name: /import files/i })
-      .or(page.locator('button:has-text("Import files"), a:has-text("Import files")'))
-      .first();
+    const importBtn = page.getByRole('button', { name: /import files/i }).or(page.locator('button:has-text("Import files"), a:has-text("Import files")')).first();
     await expect(importBtn).toBeVisible({ timeout: 10_000 });
 
-    const exportBtn = page.getByRole('button', { name: /export files/i })
-      .or(page.locator('button:has-text("Export files"), a:has-text("Export files")'))
-      .first();
+    const exportBtn = page.getByRole('button', { name: /export files/i }).or(page.locator('button:has-text("Export files"), a:has-text("Export files")')).first();
     await expect(exportBtn).toBeVisible({ timeout: 10_000 });
+
 
     // Capture End Screenshot (After Action)
     const afterShot = testInfo.outputPath('after-action.png');

@@ -822,9 +822,9 @@ function generateCodeFromSteps(steps, targetUrl) {
         break;
       }
       case 'assert_text': {
-        const cleanText = target.replace(/^text=/, '');
+        const cleanText = target.replace(/^text=/, '').replace(/'/g, "\\'");
         stepCode += `    // Step ${idx + 1}: Verify text "${cleanText}" is visible\n`;
-        stepCode += `    await expect(page.locator(\`text=\${cleanText}\`).first()).toBeVisible({ timeout: 10_000 });\n\n`;
+        stepCode += `    await expect(page.locator('text=${cleanText}').first()).toBeVisible({ timeout: 10_000 });\n\n`;
         break;
       }
       case 'select_option':
