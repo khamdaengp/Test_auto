@@ -814,14 +814,19 @@ function generateCodeFromSteps(steps, targetUrl) {
         }
         break;
       }
-      case 'assert_url':
+      case 'assert_url': {
+        // Escape forward slashes so it produces a valid JS regex literal /.../
+        const escapedUrl = target.replace(/\\/g, '\\\\').replace(/\//g, '\\/');
         stepCode += `    // Step ${idx + 1}: Verify URL contains "${target}"\n`;
-        stepCode += `    await expect(page).toHaveURL(/.*${target}/, { timeout: 15_000 });\n\n`;
+        stepCode += `    await expect(page).toHaveURL(/.*${escapedUrl}/, { timeout: 15_000 });\n\n`;
         break;
-      case 'assert_text':
-        stepCode += `    // Step ${idx + 1}: Verify text "${target}" is visible\n`;
-        stepCode += `    await expect(page.locator('text=${target}').first()).toBeVisible({ timeout: 10_000 });\n\n`;
+      }
+      case 'assert_text': {
+        const cleanText = target.replace(/^text=/, '');
+        stepCode += `    // Step ${idx + 1}: Verify text "${cleanText}" is visible\n`;
+        stepCode += `    await expect(page.locator(\`text=\${cleanText}\`).first()).toBeVisible({ timeout: 10_000 });\n\n`;
         break;
+      }
       case 'select_option':
         stepCode += `    // Step ${idx + 1}: Select option "${val}" in dropdown "${target}"\n`;
         stepCode += `    await (page.locator('select[name="${target}"], select[id="${target}"]')
@@ -1078,7 +1083,7 @@ function parseWebCodeToSteps(code) {
       const regexMatch = raw.match(/toHaveURL\(\s*\/(.*?)\/(?:[a-z]*)\s*[,)]/);
       const strMatch = raw.match(/toHaveURL\(\s*(['"`])(.*?)\1/);
       if (regexMatch && regexMatch[1]) {
-        target = regexMatch[1].replace(/^\.\*/, '').replace(/\\/g, '');
+        target = regexMatch[1].replace(/^\.\*/, '').replace(/\\([\/])/g, '$1');
       } else if (strMatch && strMatch[2]) {
         target = strMatch[2];
       }
@@ -1119,6 +1124,10 @@ function parseWebCodeToSteps(code) {
       } else {
         const firstStr = raw.match(/(['"`])([^'"`]+)\1/);
         if (firstStr) target = firstStr[2];
+      }
+
+      if (target.startsWith('text=')) {
+        target = target.replace(/^text=/, '');
       }
 
       step = {
