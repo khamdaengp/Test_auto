@@ -44,6 +44,9 @@ export default function Sidebar({
   const [isConnected, setIsConnected] = useState(socket.connected);
 
   useEffect(() => {
+    if (socket.connected) {
+      setIsConnected(true);
+    }
     function onConnect() {
       setIsConnected(true);
     }
@@ -54,7 +57,12 @@ export default function Sidebar({
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
 
+    const checkInterval = setInterval(() => {
+      setIsConnected(socket.connected);
+    }, 1500);
+
     return () => {
+      clearInterval(checkInterval);
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
     };

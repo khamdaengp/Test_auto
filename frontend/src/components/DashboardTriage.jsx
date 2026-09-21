@@ -28,6 +28,9 @@ export default function DashboardTriage({
   const [isSocketConnected, setIsSocketConnected] = useState(socket.connected);
 
   useEffect(() => {
+    if (socket.connected) {
+      setIsSocketConnected(true);
+    }
     function onConnect() {
       setIsSocketConnected(true);
     }
@@ -38,7 +41,12 @@ export default function DashboardTriage({
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
 
+    const checkInterval = setInterval(() => {
+      setIsSocketConnected(socket.connected);
+    }, 1500);
+
     return () => {
+      clearInterval(checkInterval);
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
     };
