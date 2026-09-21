@@ -154,6 +154,8 @@ async function connectDbWithRetry(retries = 0) {
   try {
     console.log('[PostgreSQL] Connecting and verifying database schema...');
     await initDb();
+    // Clean up dangling runs from previous crashes or restarts
+    await dbQuery("UPDATE test_runs SET status = 'failed', end_time = NOW() WHERE status = 'running'");
     await scheduler.initScheduler();
     console.log('[PostgreSQL] Database tables initialized and automated scheduler ready.');
   } catch (err) {

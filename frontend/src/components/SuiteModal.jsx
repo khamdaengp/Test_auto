@@ -831,9 +831,9 @@ function generateCodeFromSteps(steps, targetUrl) {
           stepCode += `    // Step ${idx + 1}: Verify text "${cleanText}" is visible\n`;
           const baseName = cleanText.replace(/^[+\s]+/, '').trim();
           if (baseName && baseName !== cleanText) {
-            stepCode += `    await expect(page.getByRole('button', { name: '${baseName}', exact: true }).or(page.locator('button:has-text("${baseName}")')).or(page.getByRole('button', { name: '${cleanText}' })).or(page.locator('button:has-text("${cleanText}")')).first()).toBeVisible({ timeout: 10_000 });\n\n`;
+            stepCode += `    await expect(page.locator('button').filter({ hasText: '${baseName}' }).or(page.getByRole('button', { name: '${baseName}' })).or(page.locator('button').filter({ hasText: '${cleanText}' })).or(page.getByRole('button', { name: '${cleanText}' })).or(page.getByText('${cleanText}', { exact: false })).first()).toBeVisible({ timeout: 10_000 });\n\n`;
           } else {
-            stepCode += `    await expect(page.getByRole('button', { name: '${cleanText}', exact: true }).or(page.locator('button:has-text("${cleanText}"), a:has-text("${cleanText}")')).first()).toBeVisible({ timeout: 10_000 });\n\n`;
+            stepCode += `    await expect(page.locator('button').filter({ hasText: '${cleanText}' }).or(page.getByRole('button', { name: '${cleanText}' })).or(page.getByText('${cleanText}', { exact: true })).first()).toBeVisible({ timeout: 10_000 });\n\n`;
           }
         }
         break;

@@ -420,6 +420,7 @@ async function runTest(suiteId, options = {}, io = null) {
       ...(options.dataset ? { PLAYWRIGHT_TEST_DATASET: JSON.stringify(options.dataset) } : {}),
     },
     shell: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
 
   activeProcesses.set(runId, child);
@@ -441,7 +442,20 @@ async function runTest(suiteId, options = {}, io = null) {
   });
 
   return new Promise((resolve) => {
+    let resolved = false;
+
+    // Safety timeout: 120 seconds maximum per run to prevent hanging indefinitely
+    const executionTimeout = setTimeout(async () => {
+      if (!resolved && activeProcesses.has(runId)) {
+        await addLog('system', '[Runner] Execution timeout exceeded 120 seconds. Aborting run...');
+        stopRun(runId);
+      }
+    }, 120_000);
+
     child.on('close', async (code) => {
+      clearTimeout(executionTimeout);
+      if (resolved) return;
+      resolved = true;
       activeProcesses.delete(runId);
       const endTime = new Date();
       const durationMs = endTime.getTime() - startTime.getTime();
@@ -597,6 +611,9 @@ async function runTest(suiteId, options = {}, io = null) {
     });
 
     child.on('error', async (err) => {
+      clearTimeout(executionTimeout);
+      if (resolved) return;
+      resolved = true;
       activeProcesses.delete(runId);
       const endTime = new Date();
       const durationMs = endTime.getTime() - startTime.getTime();

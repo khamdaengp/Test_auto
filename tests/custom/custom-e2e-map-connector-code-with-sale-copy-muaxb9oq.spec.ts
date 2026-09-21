@@ -53,19 +53,19 @@ test.describe('Automated Visual Scenario', () => {
     await expect(page.locator('form formly-field, form .ant-form-item, form nz-form-item, form .ant-col').filter({ has: page.getByText('Status', { exact: true }) }).locator('nz-select:not(.ant-pagination-options-size-changer), .ant-select:not(.ant-pagination-options-size-changer)').first()).toContainText('All', { timeout: 10_000 });
 
     // Step 14: Verify text "Search" is visible
-    await expect(page.getByRole('button', { name: 'Search' }).or(page.getByText('Search')).or(page.locator('button:has-text("Search"), a:has-text("Search")')).first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('button').filter({ hasText: 'Search' }).or(page.getByRole('button', { name: 'Search' })).first()).toBeVisible({ timeout: 10_000 });
 
     // Step 15: Verify text "Reset" is visible
-    await expect(page.getByRole('button', { name: 'Reset' }).or(page.getByText('Reset')).or(page.locator('button:has-text("Reset"), a:has-text("Reset")')).first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('button').filter({ hasText: 'Reset' }).or(page.getByRole('button', { name: 'Reset' })).first()).toBeVisible({ timeout: 10_000 });
 
-    // Step 16: Verify text "+ Create" is visible
-    await expect(page.getByRole('button', { name: 'Create', exact: true }).or(page.locator('button:has-text("Create")')).or(page.getByRole('button', { name: '+ Create' })).first()).toBeVisible({ timeout: 10_000 });
+    // Step 16: Verify text "Create" is visible
+    await expect(page.locator('button').filter({ hasText: 'Create' }).or(page.getByRole('button', { name: 'Create' })).first()).toBeVisible({ timeout: 10_000 });
 
     // Step 17: Verify text "Import files" is visible
-    await expect(page.getByRole('button', { name: 'Import files' }).or(page.getByText('Import files')).or(page.locator('button:has-text("Import files"), a:has-text("Import files")')).first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('button').filter({ hasText: 'Import files' }).or(page.getByRole('button', { name: 'Import files' })).first()).toBeVisible({ timeout: 10_000 });
 
     // Step 18: Verify text "Export files" is visible
-    await expect(page.getByRole('button', { name: 'Export files' }).or(page.getByText('Export files')).or(page.locator('button:has-text("Export files"), a:has-text("Export files")')).first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('button').filter({ hasText: 'Export files' }).or(page.getByRole('button', { name: 'Export files' })).first()).toBeVisible({ timeout: 10_000 });
 
 
     // Capture End Screenshot (After Action)

@@ -120,15 +120,28 @@ router.post('/run', async (req, res) => {
 /**
  * POST /api/tests/stop/:id - Stop an ongoing test run
  */
-router.post('/stop/:id', (req, res) => {
+router.post('/stop/:id', async (req, res) => {
   try {
     const runId = req.params.id;
-    const stopped = stopRun(runId);
-    if (stopped) {
-      res.json({ message: 'Execution cancelled', runId });
-    } else {
-      res.status(404).json({ error: 'Active process not found for this runId' });
+    stopRun(runId);
+    
+    // Always mark as cancelled in DB
+    await db.query("UPDATE test_runs SET status = 'cancelled', end_time = NOW() WHERE id = $1 AND status = 'running'", [runId]);
+    
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('test:completed', {
+        runId,
+        status: 'cancelled',
+        durationMs: 0,
+        totalTests: 0,
+        passedTests: 0,
+        failedTests: 0,
+        skippedTests: 0,
+      });
     }
+
+    res.json({ message: 'Execution cancelled', runId });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
