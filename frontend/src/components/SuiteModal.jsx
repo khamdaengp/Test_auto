@@ -474,8 +474,43 @@ function generateApiCodeFromSteps(steps, baseUrl = 'https://jsonplaceholder.typi
     let recordSnippet = `    const responseStatus = response.status();\n    const responseBodyText = await response.text();\n    if (testInfo) {\n      await testInfo.attach('api-response.json', { body: responseBodyText, contentType: 'application/json' });\n      await testInfo.attach('api-status', { body: String(responseStatus), contentType: 'text/plain' });\n    }\n    console.log('Response body:', responseBodyText);`;
 
     let assertionSnippet = `    expect(responseStatus).toBe(${status});`;
-    if (step.expectedKey && step.expectedKey.trim()) {
-      assertionSnippet += `\n    let body = {};\n    try { body = JSON.parse(responseBodyText); } catch (e) {}\n    expect(body).toHaveProperty('${step.expectedKey.trim()}');`;
+
+    const hasKey = step.expectedKey && step.expectedKey.trim();
+    const hasVal = step.expectedValue !== undefined && step.expectedValue !== null && String(step.expectedValue).trim() !== '';
+    const hasText = step.expectedText && step.expectedText.trim();
+    const matchType = step.matchType || (hasVal ? 'equals' : hasText ? 'contains' : hasKey ? 'exists' : '');
+
+    if (step.checkBody || hasKey || hasVal || hasText) {
+      assertionSnippet += `\n    let body = {};\n    try { body = JSON.parse(responseBodyText); } catch (e) {}`;
+
+      if (matchType === 'contains' && hasText) {
+        assertionSnippet += `\n    expect(responseBodyText).toContain('${step.expectedText.trim().replace(/'/g, "\\'")}');`;
+      } else if (matchType === 'not_contains' && hasText) {
+        assertionSnippet += `\n    expect(responseBodyText).not.toContain('${step.expectedText.trim().replace(/'/g, "\\'")}');`;
+      } else if (hasKey) {
+        const k = step.expectedKey.trim();
+        if (matchType === 'not_null') {
+          assertionSnippet += `\n    expect(body).toHaveProperty('${k}');\n    expect(body['${k}']).not.toBeNull();\n    expect(body['${k}']).not.toBeUndefined();`;
+        } else if (matchType === 'null') {
+          assertionSnippet += `\n    expect(body).toHaveProperty('${k}');\n    expect(body['${k}']).toBeNull();`;
+        } else if (hasVal || matchType === 'equals') {
+          const v = String(step.expectedValue ?? '').trim();
+          assertionSnippet += `\n    expect(body).toHaveProperty('${k}');`;
+          if (v.toLowerCase() === 'true') {
+            assertionSnippet += `\n    expect(Boolean(body['${k}'])).toBe(true);`;
+          } else if (v.toLowerCase() === 'false') {
+            assertionSnippet += `\n    expect(Boolean(body['${k}'])).toBe(false);`;
+          } else if (!isNaN(Number(v)) && v !== '') {
+            assertionSnippet += `\n    expect(Number(body['${k}'])).toBe(${Number(v)});`;
+          } else {
+            assertionSnippet += `\n    expect(String(body['${k}'])).toBe('${v.replace(/'/g, "\\'")}');`;
+          }
+        } else {
+          assertionSnippet += `\n    expect(body).toHaveProperty('${k}');`;
+        }
+      } else if (hasText) {
+        assertionSnippet += `\n    expect(responseBodyText).toContain('${step.expectedText.trim().replace(/'/g, "\\'")}');`;
+      }
     }
 
     testCases += `  test('${testTitle}', async ({ request }, testInfo) => {\n${requestSnippet}\n${recordSnippet}\n${assertionSnippet}\n  });\n\n`;
@@ -1458,10 +1493,58 @@ function parseApiCodeToSteps(code) {
     const status = statusMatch ? parseInt(statusMatch[1], 10) : (method === 'POST' ? 201 : 200);
 
     // Expected Key matching
-    const propMatch = assertBlock.match(/toHaveProperty\s*\(\s*(['"`])(.*?)\1\s*\)/)
-      || assertBlock.match(/toContainText\s*\(\s*(['"`])(.*?)\1\s*\)/)
-      || assertBlock.match(/toContain\s*\(\s*(['"`])(.*?)\1\s*\)/);
-    const expectedKey = propMatch ? propMatch[2] : '';
+    const propMatch = assertBlock.match(/toHaveProperty\s*\(\s*(['"`])(.*?)\1\s*\)/);
+    let expectedKey = propMatch ? propMatch[2] : '';
+    let expectedValue = '';
+    let expectedText = '';
+    let matchType = expectedKey ? 'exists' : '';
+
+    // Equals value: expect(String(body['key'])).toBe('val') or expect(body['key']).toBe('val') or expect(Number(body['key'])).toBe(123)
+    const valMatch = assertBlock.match(/expect\s*\(\s*(?:String|Number)\(\s*body\s*\[\s*(['"`])(.*?)\1\s*\]\s*\)\s*\)\s*\.(?:toBe|toEqual)\s*\(\s*(['"`]?)(.*?)\3\s*\)/i)
+      || assertBlock.match(/expect\s*\(\s*body\s*\[\s*(['"`])(.*?)\1\s*\]\s*\)\s*\.(?:toBe|toEqual)\s*\(\s*(['"`]?)(.*?)\3\s*\)/i);
+    if (valMatch) {
+      expectedKey = valMatch[2];
+      expectedValue = valMatch[4];
+      matchType = 'equals';
+    }
+
+    // Boolean value: expect(Boolean(body['key'])).toBe(true)
+    const boolMatch = assertBlock.match(/expect\s*\(\s*Boolean\(\s*body\s*\[\s*(['"`])(.*?)\1\s*\]\s*\)\s*\)\s*\.toBe\s*\(\s*(true|false)\s*\)/i);
+    if (boolMatch) {
+      expectedKey = boolMatch[2];
+      expectedValue = boolMatch[3];
+      matchType = 'equals';
+    }
+
+    // Not null: expect(body['key']).not.toBeNull()
+    const notNullMatch = assertBlock.match(/expect\s*\(\s*body\s*\[\s*(['"`])(.*?)\1\s*\]\s*\)\s*\.not\.toBeNull/i);
+    if (notNullMatch) {
+      expectedKey = notNullMatch[2];
+      matchType = 'not_null';
+    }
+
+    // Null: expect(body['key']).toBeNull()
+    const nullMatch = assertBlock.match(/expect\s*\(\s*body\s*\[\s*(['"`])(.*?)\1\s*\]\s*\)\s*\.toBeNull/i);
+    if (nullMatch) {
+      expectedKey = nullMatch[2];
+      matchType = 'null';
+    }
+
+    // Contains text in response body: expect(responseBodyText).toContain('...')
+    const containsMatch = assertBlock.match(/expect\s*\(\s*responseBodyText\s*\)\s*\.toContain\s*\(\s*(['"`])(.*?)\1\s*\)/i);
+    if (containsMatch) {
+      expectedText = containsMatch[2];
+      matchType = 'contains';
+    }
+
+    // Not contains text: expect(responseBodyText).not.toContain('...')
+    const notContainsMatch = assertBlock.match(/expect\s*\(\s*responseBodyText\s*\)\s*\.not\.toContain\s*\(\s*(['"`])(.*?)\1\s*\)/i);
+    if (notContainsMatch) {
+      expectedText = notContainsMatch[2];
+      matchType = 'not_contains';
+    }
+
+    const checkBody = !!(expectedKey || expectedValue || expectedText || matchType);
 
     steps.push({
       id: Date.now() + idx,
@@ -1469,6 +1552,10 @@ function parseApiCodeToSteps(code) {
       path: rawPath || '/',
       expectedStatus: status,
       expectedKey,
+      expectedValue,
+      expectedText,
+      matchType: matchType || (expectedKey ? 'exists' : ''),
+      checkBody,
       payload,
       desc: `${method} ${rawPath} - Expect ${status}`,
     });
@@ -1573,9 +1660,9 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
 
   // Visual No-Code Steps for API Request Testing
   const [apiSteps, setApiSteps] = useState([
-    { id: 1, method: 'GET', path: '/posts/1', expectedStatus: 200, expectedKey: 'id', payload: '', desc: 'Fetch single post & verify ID' },
-    { id: 2, method: 'POST', path: '/posts', expectedStatus: 201, expectedKey: 'id', payload: '{\n  "title": "Automated Post",\n  "body": "API Test Payload",\n  "userId": 1\n}', desc: 'Create new post with JSON payload' },
-    { id: 3, method: 'GET', path: '/posts/999999', expectedStatus: 404, expectedKey: '', payload: '', desc: 'Verify 404 for missing resource' },
+    { id: 1, method: 'GET', path: '/posts/1', expectedStatus: 200, checkBody: true, matchType: 'exists', expectedKey: 'id', expectedValue: '', expectedText: '', payload: '', desc: 'Fetch single post & verify ID' },
+    { id: 2, method: 'POST', path: '/posts', expectedStatus: 201, checkBody: true, matchType: 'exists', expectedKey: 'id', expectedValue: '', expectedText: '', payload: '{\n  "title": "Automated Post",\n  "body": "API Test Payload",\n  "userId": 1\n}', desc: 'Create new post with JSON payload' },
+    { id: 3, method: 'GET', path: '/posts/999999', expectedStatus: 404, checkBody: false, matchType: '', expectedKey: '', expectedValue: '', expectedText: '', payload: '', desc: 'Verify 404 for missing resource' },
   ]);
 
   // Visual No-Code Steps for Database Testing
@@ -1805,6 +1892,10 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
       path: method === 'POST' ? '/posts' : '/posts/1',
       expectedStatus: method === 'POST' ? 201 : 200,
       expectedKey: method === 'GET' ? 'id' : '',
+      expectedValue: '',
+      expectedText: '',
+      matchType: method === 'GET' ? 'exists' : '',
+      checkBody: method === 'GET',
       payload: ['POST', 'PUT', 'PATCH'].includes(method) ? '{\n  "title": "Automated QA Test",\n  "body": "Sample payload"\n}' : '',
       desc: '',
     };
@@ -2790,36 +2881,6 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
                           />
                         </div>
 
-                        {/* Expected Key in JSON Response */}
-                        <div className="flex items-center space-x-1.5">
-                          <span className="text-[10px] text-slate-400 font-semibold uppercase" title="Field inside JSON Response body that must exist (leave empty to skip)">Assert Key:</span>
-                          <input
-                            type="text"
-                            value={step.expectedKey || ''}
-                            onChange={(e) => handleUpdateApiStep(step.id, 'expectedKey', e.target.value)}
-                            placeholder="e.g. token, errorCode"
-                            title="Field in response body to verify (leave empty if only checking status code)"
-                            className="w-28 px-2 py-1 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono"
-                          />
-                          <div className="hidden sm:flex items-center space-x-1">
-                            {['token', 'sessionId', 'errorCode', 'result', 'id'].map((k) => (
-                              <button
-                                key={k}
-                                type="button"
-                                onClick={() => handleUpdateApiStep(step.id, 'expectedKey', step.expectedKey === k ? '' : k)}
-                                className={`text-[10px] px-1.5 py-0.5 rounded transition ${
-                                  step.expectedKey === k
-                                    ? 'bg-emerald-600 text-white font-medium shadow-xs'
-                                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900'
-                                }`}
-                                title={`Assert response has '${k}' (click again to clear)`}
-                              >
-                                {k}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-
                         <button
                           type="button"
                           onClick={() => handleRemoveApiStep(step.id)}
@@ -2829,6 +2890,169 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
+                    </div>
+
+                    {/* Dedicated Response Body Checker */}
+                    <div className="p-2.5 rounded-lg bg-slate-50/80 border border-slate-200/90 space-y-2">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div className="flex items-center space-x-2">
+                          <label className="flex items-center space-x-1.5 cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={!!step.checkBody}
+                              onChange={(e) => {
+                                const checked = e.target.checked;
+                                handleUpdateApiStep(step.id, 'checkBody', checked);
+                                if (checked && !step.matchType) {
+                                  handleUpdateApiStep(step.id, 'matchType', 'equals');
+                                }
+                              }}
+                              className="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 cursor-pointer"
+                            />
+                            <span className="text-[11px] font-bold text-slate-800 flex items-center space-x-1">
+                              <CheckSquare className="w-3.5 h-3.5 text-emerald-600" />
+                              <span>Response Body Checker</span>
+                            </span>
+                          </label>
+                          {step.checkBody ? (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 uppercase tracking-wider">
+                              Active
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-slate-400">
+                              (Check box to verify body payload, errorCode, or result)
+                            </span>
+                          )}
+                        </div>
+
+                        {step.checkBody && (
+                          <div className="flex items-center space-x-1 text-xs">
+                            <span className="text-[11px] text-slate-500 font-medium">Check Mode:</span>
+                            <select
+                              value={step.matchType || 'equals'}
+                              onChange={(e) => handleUpdateApiStep(step.id, 'matchType', e.target.value)}
+                              className="px-2 py-0.5 rounded text-[11px] font-semibold bg-white border border-slate-200 text-slate-700 focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
+                            >
+                              <option value="equals">Key Equals Value (=)</option>
+                              <option value="contains">Body Contains Text</option>
+                              <option value="not_contains">Body NOT Contains Text</option>
+                              <option value="not_null">Key Exists & Not Null</option>
+                              <option value="exists">Key Exists</option>
+                            </select>
+                          </div>
+                        )}
+                      </div>
+
+                      {step.checkBody && (
+                        <div className="pt-2 border-t border-slate-200/70 space-y-2">
+                          {(step.matchType === 'equals' || !step.matchType) && (
+                            <div className="flex flex-col md:flex-row md:items-center gap-2">
+                              <div className="flex items-center space-x-1.5 flex-1 min-w-[160px]">
+                                <span className="text-[10px] text-slate-500 font-semibold uppercase w-10">Key:</span>
+                                <input
+                                  type="text"
+                                  value={step.expectedKey || ''}
+                                  onChange={(e) => handleUpdateApiStep(step.id, 'expectedKey', e.target.value)}
+                                  placeholder="e.g. errorCode, result, success, token"
+                                  className="w-full px-2.5 py-1 text-xs bg-white border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono"
+                                />
+                              </div>
+                              <div className="flex items-center space-x-1.5 flex-1 min-w-[160px]">
+                                <span className="text-[10px] text-slate-500 font-semibold uppercase w-12">Value:</span>
+                                <input
+                                  type="text"
+                                  value={step.expectedValue || ''}
+                                  onChange={(e) => handleUpdateApiStep(step.id, 'expectedValue', e.target.value)}
+                                  placeholder="e.g. 0, true, S500, success"
+                                  className="w-full px-2.5 py-1 text-xs bg-white border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono"
+                                />
+                              </div>
+                              {/* 1-Click Quick Presets */}
+                              <div className="flex items-center space-x-1 flex-wrap gap-y-1">
+                                {[
+                                  { label: 'result = true', k: 'result', v: 'true' },
+                                  { label: 'success = true', k: 'success', v: 'true' },
+                                  { label: 'errorCode = 0', k: 'errorCode', v: '0' },
+                                  { label: 'errorCode = S500', k: 'errorCode', v: 'S500' },
+                                ].map((pr) => (
+                                  <button
+                                    key={pr.label}
+                                    type="button"
+                                    onClick={() => {
+                                      handleUpdateApiStep(step.id, 'expectedKey', pr.k);
+                                      handleUpdateApiStep(step.id, 'expectedValue', pr.v);
+                                      handleUpdateApiStep(step.id, 'matchType', 'equals');
+                                    }}
+                                    className={`text-[10px] px-2 py-0.5 rounded border transition cursor-pointer ${
+                                      step.expectedKey === pr.k && step.expectedValue === pr.v
+                                        ? 'bg-emerald-600 text-white border-emerald-600 font-semibold shadow-2xs'
+                                        : 'bg-white hover:bg-emerald-50 hover:text-emerald-700 border-slate-200 text-slate-600'
+                                    }`}
+                                  >
+                                    {pr.label}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {(step.matchType === 'contains' || step.matchType === 'not_contains') && (
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                              <span className="text-[10px] text-slate-500 font-semibold uppercase w-28">
+                                {step.matchType === 'contains' ? 'Must Contain:' : 'Must NOT Contain:'}
+                              </span>
+                              <input
+                                type="text"
+                                value={step.expectedText || ''}
+                                onChange={(e) => handleUpdateApiStep(step.id, 'expectedText', e.target.value)}
+                                placeholder='e.g. "errorCode": "S500" or unauthorized or success'
+                                className="flex-1 px-2.5 py-1 text-xs bg-white border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono"
+                              />
+                              <div className="flex items-center space-x-1">
+                                {['"S500"', 'unauthorized', 'success'].map((txt) => (
+                                  <button
+                                    key={txt}
+                                    type="button"
+                                    onClick={() => handleUpdateApiStep(step.id, 'expectedText', txt)}
+                                    className="text-[10px] px-2 py-0.5 rounded bg-white hover:bg-slate-100 border border-slate-200 text-slate-600 transition cursor-pointer"
+                                  >
+                                    {txt}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {(step.matchType === 'not_null' || step.matchType === 'exists') && (
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                              <span className="text-[10px] text-slate-500 font-semibold uppercase w-28">Property Key:</span>
+                              <input
+                                type="text"
+                                value={step.expectedKey || ''}
+                                onChange={(e) => handleUpdateApiStep(step.id, 'expectedKey', e.target.value)}
+                                placeholder="e.g. token, sessionId, result"
+                                className="w-48 px-2.5 py-1 text-xs bg-white border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono"
+                              />
+                              <div className="flex items-center space-x-1">
+                                {['token', 'sessionId', 'result', 'id'].map((k) => (
+                                  <button
+                                    key={k}
+                                    type="button"
+                                    onClick={() => handleUpdateApiStep(step.id, 'expectedKey', k)}
+                                    className={`text-[10px] px-2 py-0.5 rounded border transition cursor-pointer ${
+                                      step.expectedKey === k
+                                        ? 'bg-emerald-600 text-white border-emerald-600 font-semibold shadow-2xs'
+                                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                                    }`}
+                                  >
+                                    {k}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     {/* Step Description & JSON Payload */}

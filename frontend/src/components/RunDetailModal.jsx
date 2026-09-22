@@ -253,6 +253,51 @@ export default function RunDetailModal({ runDetail, onClose }) {
                                   Status: {item.response_status}
                                 </span>
                               )}
+                              {(() => {
+                                if (!item.response_body) return null;
+                                try {
+                                  const parsed = JSON.parse(item.response_body);
+                                  if (parsed.errorCode && parsed.errorCode !== '0' && parsed.errorCode !== 0) {
+                                    return (
+                                      <span
+                                        className="px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-amber-50 text-amber-800 border border-amber-300 flex items-center space-x-1 shadow-2xs"
+                                        title={parsed.errorMessage || 'Business Error returned inside response body'}
+                                      >
+                                        <AlertTriangle className="w-3 h-3 text-amber-600 flex-shrink-0" />
+                                        <span>Body Error: {parsed.errorCode}</span>
+                                      </span>
+                                    );
+                                  }
+                                  if (parsed.error) {
+                                    return (
+                                      <span
+                                        className="px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-rose-50 text-rose-800 border border-rose-300 flex items-center space-x-1 shadow-2xs"
+                                        title={String(parsed.error_description || parsed.error)}
+                                      >
+                                        <AlertTriangle className="w-3 h-3 text-rose-600 flex-shrink-0" />
+                                        <span>Body Error: {String(parsed.error)}</span>
+                                      </span>
+                                    );
+                                  }
+                                  if (parsed.result !== undefined && parsed.result !== null) {
+                                    return (
+                                      <span className="px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-emerald-50 text-emerald-800 border border-emerald-300 flex items-center space-x-1 shadow-2xs">
+                                        <CheckCircle2 className="w-3 h-3 text-emerald-600 flex-shrink-0" />
+                                        <span>Result: {String(parsed.result)}</span>
+                                      </span>
+                                    );
+                                  }
+                                  if (parsed.token || parsed.sessionId || parsed.id) {
+                                    return (
+                                      <span className="px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-blue-50 text-blue-800 border border-blue-300 flex items-center space-x-1 shadow-2xs">
+                                        <CheckCircle2 className="w-3 h-3 text-blue-600 flex-shrink-0" />
+                                        <span>Verified: {parsed.token ? 'token' : parsed.sessionId ? 'sessionId' : 'id'}</span>
+                                      </span>
+                                    );
+                                  }
+                                } catch (e) {}
+                                return null;
+                              })()}
                               {item.response_body && (
                                 <span className="text-[10px] text-slate-400 font-mono">
                                   ({new Blob([item.response_body]).size} bytes)
