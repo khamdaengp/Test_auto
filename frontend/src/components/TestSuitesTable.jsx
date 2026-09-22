@@ -591,12 +591,12 @@ export default function TestSuitesTable({
                                     {isExpanded ? (
                                       <>
                                         <ChevronDown className="w-2.5 h-2.5 rotate-180" />
-                                        <span>ຫຍໍ້</span>
+                                        <span>Less</span>
                                       </>
                                     ) : (
                                       <>
                                         <ChevronDown className="w-2.5 h-2.5" />
-                                        <span>ເບິ່ງເພີ່ມ</span>
+                                        <span>See more</span>
                                       </>
                                     )}
                                   </button>
