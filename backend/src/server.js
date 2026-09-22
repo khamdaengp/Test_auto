@@ -11,6 +11,8 @@ const suitesRouter = require('./routes/suites');
 const runsRouter = require('./routes/runs');
 const statsRouter = require('./routes/stats');
 const projectsRouter = require('./routes/projects');
+const authRouter = require('./routes/auth');
+const { authMiddleware, verifyToken } = require('./middleware/auth');
 const scheduler = require('./services/scheduler');
 
 const app = express();
@@ -51,25 +53,10 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
-app.use('/api/projects', projectsRouter);
-app.use('/api/suites', suitesRouter);
-app.use('/api/runs', runsRouter);
-app.use('/api/tests', runsRouter);
-app.use('/api/stats', statsRouter);
+// Public auth endpoints (login, register, etc.)
+app.use('/api/auth', authRouter);
 
-// Serve built frontend static files if present
-const frontendDist = require('path').resolve(__dirname, '../../frontend/dist');
-if (fs.existsSync(frontendDist)) {
-  app.use(express.static(frontendDist));
-  app.get('*', (req, res, next) => {
-    if (req.path.startsWith('/api/') || req.path.startsWith('/artifacts/') || req.path.startsWith('/socket.io')) {
-      return next();
-    }
-    res.sendFile(require('path').join(frontendDist, 'index.html'));
-  });
-}
-
-// Health check endpoint with real-time telemetry
+// Public health check endpoint
 app.get('/api/health', async (req, res) => {
   let dbStatus = 'disconnected';
   let dbDetails = { host: 'localhost', port: 5432, database: 'qa_dashboard', activeConnections: 0 };
@@ -103,9 +90,44 @@ app.get('/api/health', async (req, res) => {
   });
 });
 
+// Protect all remaining /api routes with JWT authentication
+app.use('/api', authMiddleware);
+
+app.use('/api/projects', projectsRouter);
+app.use('/api/suites', suitesRouter);
+app.use('/api/runs', runsRouter);
+app.use('/api/tests', runsRouter);
+app.use('/api/stats', statsRouter);
+
+// Serve built frontend static files if present
+const frontendDist = require('path').resolve(__dirname, '../../frontend/dist');
+if (fs.existsSync(frontendDist)) {
+  app.use(express.static(frontendDist));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api/') || req.path.startsWith('/artifacts/') || req.path.startsWith('/socket.io')) {
+      return next();
+    }
+    res.sendFile(require('path').join(frontendDist, 'index.html'));
+  });
+}
+
+// Socket.io authentication middleware
+io.use((socket, next) => {
+  const token = socket.handshake.auth?.token || socket.handshake.query?.token;
+  if (!token) {
+    return next(new Error('Authentication required for WebSocket connection'));
+  }
+  const decoded = verifyToken(token);
+  if (!decoded) {
+    return next(new Error('Invalid or expired authentication token'));
+  }
+  socket.user = decoded;
+  next();
+});
+
 // Socket.io connection handling
 io.on('connection', (socket) => {
-  console.log(`[Socket.io] Client connected: ${socket.id}`);
+  console.log(`[Socket.io] Authenticated client connected: ${socket.id} (${socket.user?.username || 'user'})`);
 
   socket.on('disconnect', () => {
     console.log(`[Socket.io] Client disconnected: ${socket.id}`);
@@ -179,6 +201,14 @@ process.on('SIGINT', () => {
 });
 process.on('SIGTERM', () => {
   server.close(() => process.exit(0));
+});
+
+// Protect server from unexpected crashes
+process.on('uncaughtException', (err) => {
+  console.error('[Server] Uncaught Exception:', err);
+});
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[Server] Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
 startServer();
