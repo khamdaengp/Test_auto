@@ -116,7 +116,8 @@ export default function TestSuitesTable({
   // Export Test Suites to Excel (.xlsx)
   const handleExportSuitesExcel = () => {
     if (filteredSuites.length === 0) return;
-    const data = filteredSuites.map((s) => ({
+    const data = filteredSuites.map((s, idx) => ({
+      'NO': idx + 1,
       'Suite ID': s.id || '',
       'Name': s.name || '',
       'Type': (s.type || '').toUpperCase(),
@@ -440,6 +441,7 @@ export default function TestSuitesTable({
         <table className="w-full text-left text-xs">
           <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider text-[11px] border-b border-slate-200">
             <tr>
+              <th className="py-3 px-4 font-semibold text-center w-14 text-slate-500">NO</th>
               <th className="py-3 px-5 font-semibold">Test Suite</th>
               <th className="py-3 px-4 font-semibold">Category</th>
               <th className="py-3 px-4 font-semibold hidden md:table-cell">Target & Device</th>
@@ -451,7 +453,7 @@ export default function TestSuitesTable({
             {filteredSuites.length === 0 ? (
               scopeFilter === 'active' ? (
                 <tr>
-                  <td colSpan={5} className="py-12 px-6 text-center">
+                  <td colSpan={6} className="py-12 px-6 text-center">
                     <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto mb-3 border border-indigo-100 shadow-2xs">
                       <Layers className="w-6 h-6" />
                     </div>
@@ -497,17 +499,20 @@ export default function TestSuitesTable({
                 </tr>
               ) : (
                 <tr>
-                  <td colSpan={5} className="py-10 text-center text-slate-400 italic text-xs">
+                  <td colSpan={6} className="py-10 text-center text-slate-400 italic text-xs">
                     No starter templates found matching your search.
                   </td>
                 </tr>
               )
             ) : (
-              filteredSuites.map((suite) => {
+              filteredSuites.map((suite, idx) => {
                 const isCurrentRunning = isRunning && runningSuiteId === suite.id;
 
                 return (
                   <tr key={suite.id} className="hover:bg-slate-50/80 transition group">
+                    <td className="py-3.5 px-4 text-center font-medium text-slate-400 text-xs w-14">
+                      {idx + 1}
+                    </td>
                     <td className="py-3.5 px-5">
                       <div className="flex items-center space-x-3">
                         <div className="p-2 rounded-lg bg-slate-100 border border-slate-200/80 flex-shrink-0">
