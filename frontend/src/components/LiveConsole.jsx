@@ -41,6 +41,35 @@ export default function LiveConsole({
   const [isMaximized, setIsMaximized] = useState(false);
   const terminalContainerRef = useRef(null);
 
+  // Smooth animated percentage transition
+  const [displayPercent, setDisplayPercent] = useState(progress?.percent || 0);
+
+  useEffect(() => {
+    const target = typeof progress?.percent === 'number' ? progress.percent : 0;
+    if (displayPercent === target) return;
+
+    const diff = Math.abs(target - displayPercent);
+    const step = target > displayPercent ? 1 : -1;
+    const intervalTime = Math.max(10, Math.floor(300 / Math.max(diff, 1)));
+
+    const timer = setInterval(() => {
+      setDisplayPercent((prev) => {
+        if (prev === target) {
+          clearInterval(timer);
+          return prev;
+        }
+        const next = prev + step;
+        if ((step > 0 && next >= target) || (step < 0 && next <= target)) {
+          clearInterval(timer);
+          return target;
+        }
+        return next;
+      });
+    }, intervalTime);
+
+    return () => clearInterval(timer);
+  }, [progress?.percent, displayPercent]);
+
   useEffect(() => {
     if (isRunning) {
       setIsCollapsed(false);
@@ -267,11 +296,11 @@ export default function LiveConsole({
         </div>
 
         {/* Progress Bar Bar */}
-        <div className="px-4 py-2 bg-white border-b border-slate-200 flex flex-col gap-2">
+        <div className="px-4 py-2.5 bg-white border-b border-slate-200 flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2 flex-wrap gap-y-1">
               {getStatusBadge()}
-              <span className="text-xs text-slate-600 font-medium truncate max-w-[240px]">
+              <span className="text-xs text-slate-700 font-medium truncate max-w-[280px] sm:max-w-md">
                 {progress.text}
               </span>
               {progress.runId && onInspectRun && (
@@ -286,22 +315,30 @@ export default function LiveConsole({
                 </button>
               )}
             </div>
-            <span className="text-xs font-mono font-bold text-slate-800">
-              {progress.percent}%
-            </span>
+            <div className="flex items-center space-x-1.5">
+              <span className="text-xs font-mono font-bold text-slate-800">
+                {displayPercent}%
+              </span>
+            </div>
           </div>
 
-          <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+          <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden shadow-inner relative">
             <div
-              className={`h-full transition-all duration-300 rounded-full ${
+              className={`h-full transition-all duration-500 ease-out rounded-full relative overflow-hidden ${
                 progress.status === 'failed' || progress.status === 'error'
-                  ? 'bg-rose-500'
+                  ? 'bg-gradient-to-r from-rose-500 to-red-600'
                   : progress.status === 'passed'
-                  ? 'bg-emerald-500'
-                  : 'bg-indigo-600'
+                  ? 'bg-gradient-to-r from-emerald-500 to-teal-600'
+                  : progress.status === 'initializing'
+                  ? 'bg-gradient-to-r from-amber-500 to-amber-600'
+                  : 'bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500'
               }`}
-              style={{ width: `${Math.max(progress.percent, 2)}%` }}
-            ></div>
+              style={{ width: `${Math.min(Math.max(displayPercent, 2), 100)}%` }}
+            >
+              {(isRunning || progress.status === 'running' || progress.status === 'initializing' || progress.status === 'parsing') && (
+                <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-white/40 to-transparent animate-shimmer" />
+              )}
+            </div>
           </div>
 
           {/* Sub-toolbar: Stream Filters & Search (only shown when not collapsed) */}

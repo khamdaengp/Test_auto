@@ -407,7 +407,21 @@ async function runTest(suiteId, options = {}, io = null) {
   const screenshotOption = options.screenshot || 'only-on-failure';
 
   await addLog('system', `[Runner] Executing command: ${cmd} ${args.join(' ')} (Workers: ${workers}, Retries: ${retries}, Env: ${environment}, Video: ${videoOption}, Screenshot: ${screenshotOption})`);
-  if (io) io.emit('test:progress', { runId, percent: 30, status: 'running', text: `Executing tests with ${workers} worker(s)...` });
+  
+  let totalTestsCount = (options.testFiles && options.testFiles.length > 0) ? options.testFiles.length : 1;
+  let completedTestsCount = 0;
+  let currentPercent = 20;
+
+  if (io) {
+    io.emit('test:progress', {
+      runId,
+      percent: currentPercent,
+      status: 'running',
+      text: totalTestsCount > 1
+        ? `Preparing ${totalTestsCount} test suites with ${workers} worker(s)...`
+        : `Executing tests with ${workers} worker(s)...`,
+    });
+  }
 
   const child = spawn(cmd, args, {
     cwd: config.playwrightRoot,
@@ -434,6 +448,46 @@ async function runTest(suiteId, options = {}, io = null) {
     const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0 && !l.startsWith('npm notice'));
     for (const line of lines) {
       await addLog('stdout', line);
+
+      // 1. Detect announced total test count from Playwright (e.g. "Running 15 tests using 1 worker")
+      const totalMatch = line.match(/Running\s+(\d+)\s+tests?/i);
+      if (totalMatch) {
+        const parsedTotal = parseInt(totalMatch[1], 10);
+        if (parsedTotal > 0) {
+          totalTestsCount = parsedTotal;
+        }
+      }
+
+      // 2. Detect completed tests from Playwright list reporter (e.g. "ok 6 [chromium] > ...", "not ok 2 [chromium] > ...")
+      const testMatch = line.match(/^\s*(?:ok|not ok)\s+(\d+)\s*(?:\[([^\]]+)\])?\s*(?:>\s*(.+))?/i);
+      if (testMatch) {
+        const testIndex = parseInt(testMatch[1], 10);
+        completedTestsCount = Math.max(completedTestsCount, testIndex);
+        if (completedTestsCount > totalTestsCount) {
+          totalTestsCount = completedTestsCount;
+        }
+
+        // Map progress smoothly: 20% -> 88%
+        const ratio = totalTestsCount > 0 ? (completedTestsCount / totalTestsCount) : 0.5;
+        const targetPercent = Math.min(88, Math.round(20 + ratio * 68));
+        if (targetPercent > currentPercent) {
+          currentPercent = targetPercent;
+        }
+
+        const rawDetail = testMatch[3] || '';
+        const testTitle = rawDetail.split('>').pop()?.trim() || `Test #${completedTestsCount}`;
+
+        if (io) {
+          io.emit('test:progress', {
+            runId,
+            percent: currentPercent,
+            status: 'running',
+            text: totalTestsCount > 1
+              ? `Completed ${completedTestsCount}/${totalTestsCount} tests (${currentPercent}%)...`
+              : `Running: ${testTitle}`,
+          });
+        }
+      }
     }
   });
 
@@ -448,17 +502,47 @@ async function runTest(suiteId, options = {}, io = null) {
   return new Promise((resolve) => {
     let resolved = false;
 
+    // Smooth heartbeat progress ticker to ensure the progress bar is continuously moving and never looks frozen
+    const progressTicker = setInterval(() => {
+      if (resolved || !activeProcesses.has(runId)) {
+        clearInterval(progressTicker);
+        return;
+      }
+
+      const targetCeiling = totalTestsCount > 1
+        ? Math.min(88, Math.round(20 + ((completedTestsCount + 0.85) / totalTestsCount) * 68))
+        : 85;
+
+      if (currentPercent < targetCeiling) {
+        currentPercent += 1;
+        if (io) {
+          io.emit('test:progress', {
+            runId,
+            percent: currentPercent,
+            status: 'running',
+            text: totalTestsCount > 1
+              ? (completedTestsCount > 0
+                  ? `Running test ${Math.min(completedTestsCount + 1, totalTestsCount)} of ${totalTestsCount} (${currentPercent}%)...`
+                  : `Executing tests with ${workers} worker(s)...`)
+              : `Executing test flow (${currentPercent}%)...`,
+          });
+        }
+      }
+    }, 700);
+
     // Safety timeout: 600s for batch suites (all-active / all-tests) or 180s for single suites
     const isBatch = suite.id === 'all-active' || suite.id === 'all-tests' || (options.testFiles && options.testFiles.length > 2);
     const timeoutMs = isBatch ? 600_000 : 180_000;
     const executionTimeout = setTimeout(async () => {
       if (!resolved && activeProcesses.has(runId)) {
+        clearInterval(progressTicker);
         await addLog('system', `[Runner] Execution timeout exceeded ${Math.round(timeoutMs / 1000)} seconds. Aborting run...`);
         stopRun(runId);
       }
     }, timeoutMs);
 
     child.on('close', async (code) => {
+      clearInterval(progressTicker);
       clearTimeout(executionTimeout);
       if (resolved) return;
       resolved = true;
@@ -466,7 +550,7 @@ async function runTest(suiteId, options = {}, io = null) {
       const endTime = new Date();
       const durationMs = endTime.getTime() - startTime.getTime();
 
-      if (io) io.emit('test:progress', { runId, percent: 90, status: 'parsing', text: 'Parsing test results and failure media...' });
+      if (io) io.emit('test:progress', { runId, percent: 92, status: 'parsing', text: 'Parsing test results and failure media...' });
 
       // Parse JSON report
       const testCases = parsePlaywrightReport(reportPath);
