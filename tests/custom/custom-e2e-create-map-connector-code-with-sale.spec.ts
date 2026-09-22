@@ -12,73 +12,76 @@ test.describe('Automated Test Suite: Map connector code with sale staff - MBCCS'
     await page.screenshot({ path: beforeShot, fullPage: true });
     await testInfo.attach('before-action', { path: beforeShot, contentType: 'image/png' });
 
-    // Step 1: Login
+    // Step 1: Fill Username
     await page.getByPlaceholder('Username').fill('BCCS3_FULL');
+
+    // Step 2: Fill Password
     await page.getByPlaceholder('Password').fill('654321a@');
+
+    // Step 3: Click Login
     await (page.getByRole('button', { name: 'Login' }).or(page.locator('button:has-text("Login")')).first()).click();
     await expect(page).toHaveURL(/.*dashboard/, { timeout: 15_000 });
 
-    // Step 2: Navigate to Map connector code with sale staff page
+    // Step 4: Click Assign FTTH subscriber managem
     await (page.getByRole('button', { name: 'Assign FTTH subscriber managem' }).or(page.getByRole('link', { name: 'Assign FTTH subscriber managem' })).or(page.locator('button:has-text("Assign FTTH subscriber managem"), a:has-text("Assign FTTH subscriber managem")')).first()).click();
+
+    // Step 5: Click Map connector code with sale staff
     await (page.getByRole('button', { name: 'Map connector code with sale staff' }).or(page.getByRole('link', { name: 'Map connector code with sale staff' })).or(page.locator('button:has-text("Map connector code with sale staff"), a:has-text("Map connector code with sale staff")')).first()).click();
     await expect(page).toHaveURL(/.*map-conn-with-sale-staff/, { timeout: 15_000 });
 
-    // Close AI Assistant floating card if present to prevent click interception
-    const closeAssistant = page.locator('.ai-assistant__card button, .ai-assistant__card .anticon-close, .ai-assistant__card [class*="close"], .ai-assistant__card svg').first();
-    if (await closeAssistant.isVisible().catch(() => false)) {
-      await closeAssistant.click().catch(() => {});
+    // Step 6: Close AI Assistant if open
+    const closeBtn = page.locator('.ai-assistant__card svg, .ai-assistant__card button').first();
+    if (await closeBtn.isVisible().catch(() => false)) {
+      await closeBtn.click({ force: true }).catch(() => {});
       await page.waitForTimeout(500);
     }
 
-    // Step 3: Click "+ Create" button to open the Drawer
-    const createButton = page.locator('button').filter({ hasText: 'Create' }).or(page.getByRole('button', { name: 'Create' })).first();
-    await createButton.click();
+    // Step 7: Click Create button to open drawer
+    await (page.locator('button').filter({ hasText: 'Create' }).or(page.getByRole('button', { name: 'Create' })).first()).click();
     await page.waitForTimeout(1000);
 
-    const drawer = page.locator('.ant-drawer, .ant-modal').first();
-    await expect(drawer).toBeVisible({ timeout: 10_000 });
+    // Step 8: Select Branch (Option 1)
+    await page.locator('.ant-drawer [id*="formly-select_branch"]').locator('.ant-select-selector, nz-select-arrow').first().click({ force: true });
+    await page.waitForTimeout(600);
+    await page.locator('.cdk-overlay-container nz-option-item').first().click({ force: true });
+    await page.waitForTimeout(800);
 
-    // Helper to select dropdown option reliably in Angular Formly
-    async function selectOption(selectorPattern: string, optionIndex: number = 0) {
-      const select = drawer.locator(selectorPattern).locator('.ant-select-selector, nz-select-arrow').first();
-      await select.click({ force: true });
-      await page.waitForTimeout(600);
+    // Step 9: Select Business Center (Option 4)
+    await page.locator('.ant-drawer [id*="formly-select_businessCenter"]').locator('.ant-select-selector, nz-select-arrow').first().click({ force: true });
+    await page.waitForTimeout(600);
+    await page.locator('.cdk-overlay-container nz-option-item').nth(3).click({ force: true });
+    await page.waitForTimeout(800);
 
-      const option = page.locator('.cdk-overlay-container nz-option-item:not(.ant-select-item-option-disabled)').nth(optionIndex);
-      await option.waitFor({ state: 'attached', timeout: 5000 });
-      await option.click({ force: true });
-      await page.waitForTimeout(800);
-    }
+    // Step 10: Select Sales Staff (Option 1)
+    await page.locator('.ant-drawer [id*="formly-select_saleStaff"]').locator('.ant-select-selector, nz-select-arrow').first().click({ force: true });
+    await page.waitForTimeout(600);
+    await page.locator('.cdk-overlay-container nz-option-item').first().click({ force: true });
+    await page.waitForTimeout(800);
 
-    // Step 4: Select Branch (Option 1)
-    await selectOption('[id*="formly-select_branch"]', 0);
+    // Step 11: Select Station Code (Option 1)
+    await page.locator('.ant-drawer [id*="formly-select_stationCode"]').locator('.ant-select-selector, nz-select-arrow').first().click({ force: true });
+    await page.waitForTimeout(600);
+    await page.locator('.cdk-overlay-container nz-option-item').first().click({ force: true });
+    await page.waitForTimeout(800);
 
-    // Step 5: Select Business center (Option 4)
-    await selectOption('[id*="formly-select_businessCenter"]', 3);
+    // Step 12: Select Cablebox Code (Option 1)
+    await page.locator('.ant-drawer [id*="formly-select_cableBoxCode"]').locator('.ant-select-selector, nz-select-arrow').first().click({ force: true });
+    await page.waitForTimeout(600);
+    await page.locator('.cdk-overlay-container nz-option-item').first().click({ force: true });
+    await page.waitForTimeout(800);
 
-    // Step 6: Select Sales staff (Option 1)
-    await selectOption('[id*="formly-select_saleStaff"]', 0);
-
-    // Step 7: Select Station code (Option 1)
-    await selectOption('[id*="formly-select_stationCode"]', 0);
-
-    // Step 8: Select Cablebox code (Option 1)
-    await selectOption('[id*="formly-select_cableBoxCode"]', 0);
-
-    // Step 9: Click Submit button in the Drawer
-    const submitButton = drawer.locator('button').filter({ hasText: 'Submit' }).first();
-    await submitButton.click();
+    // Step 13: Click Submit
+    await page.locator('.ant-drawer button').filter({ hasText: 'Submit' }).first().click();
     await page.waitForTimeout(1000);
 
-    // Step 10: Confirm modal dialog "Ok"
-    const confirmModal = page.locator('.ant-modal-confirm, .ant-modal, nz-modal-container');
+    // Step 14: Confirm Dialog Ok
+    const confirmModal = page.locator('.ant-modal-confirm, .ant-modal');
     if (await confirmModal.isVisible().catch(() => false)) {
-      const okButton = confirmModal.locator('button').filter({ hasText: /Ok|OK|Confirm|Yes/i }).first();
-      await okButton.click();
+      await confirmModal.locator('button').filter({ hasText: /Ok|OK|Confirm|Yes/i }).first().click();
       await page.waitForTimeout(2000);
     }
 
-    // Step 11: Assert Success Notification / Toast
+    // Step 15: Verify Success Notification
     const successToast = page.locator('.ant-message-success, .ant-notification-notice-success, .ant-message, nz-notification');
     await expect(successToast.first()).toBeVisible({ timeout: 15_000 });
 

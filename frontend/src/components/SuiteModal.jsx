@@ -803,8 +803,9 @@ function generateCodeFromSteps(steps, targetUrl) {
       case 'click': {
         const isCss = target.startsWith('#') || target.startsWith('.') || target.includes('[') || target.includes('>');
         if (strategy === 'css' || isCss) {
+          const safeTarget = target.replace(/'/g, "\\'");
           stepCode += `    // Step ${idx + 1}: Click element by selector "${target}"\n`;
-          stepCode += `    await page.locator('${target}').click();\n\n`;
+          stepCode += `    await page.locator('${safeTarget}').click();\n\n`;
         } else if (strategy === 'testid') {
           stepCode += `    // Step ${idx + 1}: Click element by test-id "${target}"\n`;
           stepCode += `    await page.getByTestId('${target}').click();\n\n`;
@@ -1017,10 +1018,10 @@ function parseWebCodeToSteps(code) {
       let target = 'Input Field';
       let strategy = 'auto';
 
-      const phMatch = raw.match(/getByPlaceholder\(\s*(?:['"`]|\/)(.*?)(?:['"`\/]|\))/);
-      const labelMatch = raw.match(/getByLabel\(\s*(?:['"`]|\/)(.*?)(?:['"`\/]|\))/);
-      const testidMatch = raw.match(/getByTestId\(\s*(?:['"`]|\/)(.*?)(?:['"`\/]|\))/);
-      const locMatch = raw.match(/locator\(\s*(?:['"`]|\/)(.*?)(?:['"`\/]|\))/);
+      const phMatch = raw.match(/getByPlaceholder\(\s*(['"`])(.*?)\1/);
+      const labelMatch = raw.match(/getByLabel\(\s*(['"`])(.*?)\1/);
+      const testidMatch = raw.match(/getByTestId\(\s*(['"`])(.*?)\1/);
+      const locMatch = raw.match(/locator\(\s*(['"`])(.*?)\1/);
       const nameMatch = raw.match(/input\[name=(['"`])(.*?)\1\]/);
 
       if (phMatch && phMatch[1]) {
@@ -1058,10 +1059,10 @@ function parseWebCodeToSteps(code) {
       let target = 'Button / Element';
       let strategy = 'auto';
 
-      const roleMatch = raw.match(/getByRole\(\s*(['"`])([a-zA-Z0-9_-]+)\1\s*,\s*\{\s*name:\s*(?:['"`]|\/)(.*?)(?:['"`\/]|\})/);
-      const testidMatch = raw.match(/getByTestId\(\s*(?:['"`]|\/)(.*?)(?:['"`\/]|\))/);
-      const locMatch = raw.match(/locator\(\s*(?:['"`]|\/)(.*?)(?:['"`\/]|\))/);
-      const textMatch = raw.match(/getByText\(\s*(?:['"`]|\/)(.*?)(?:['"`\/]|\))/);
+      const roleMatch = raw.match(/getByRole\(\s*(['"`])([a-zA-Z0-9_-]+)\1\s*,\s*\{\s*name:\s*(['"`])(.*?)\3/);
+      const testidMatch = raw.match(/getByTestId\(\s*(['"`])(.*?)\1/);
+      const locMatch = raw.match(/locator\(\s*(['"`])(.*?)\1/);
+      const textMatch = raw.match(/getByText\(\s*(['"`])(.*?)\1/);
 
       if (roleMatch && roleMatch[3]) {
         target = roleMatch[3];
@@ -1133,7 +1134,7 @@ function parseWebCodeToSteps(code) {
       const textMatch = raw.match(/getByText\(\s*(?:['"`]|\/)(.*?)(?:['"`\/]|\))/);
       const filterMatch = raw.match(/filter\(\s*\{\s*(?:hasText|has):\s*(?:page\.getByText\(\s*)?['"`](.*?)['"`]/);
       const hasTextMatch = raw.match(/:has-text\(\s*['"`](.*?)['"`]\s*\)/);
-      const locMatch = raw.match(/locator\(\s*(?:['"`]|\/)(.*?)(?:['"`\/]|\))/);
+      const locMatch = raw.match(/locator\(\s*(['"`])(.*?)\1/);
 
       if (filterMatch && filterMatch[1]) {
         target = filterMatch[1];
