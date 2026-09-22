@@ -43,8 +43,11 @@ export default function ProjectModal({
   const [envRows, setEnvRows] = useState([]); // [{ id, key, value, showValue }]
   const [error, setError] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
 
   if (!isOpen) return null;
+
+  const safeProjects = Array.isArray(projects) ? projects : [];
 
   // Convert an object of env_vars to an array of rows
   const objectToEnvRows = (envObj) => {
@@ -143,8 +146,6 @@ export default function ProjectModal({
       return [...prev, ...newItems];
     });
   };
-
-  const [isImporting, setIsImporting] = useState(false);
 
   const handleImportFromEnv = async () => {
     try {
@@ -255,7 +256,7 @@ export default function ProjectModal({
                     : 'Manage Software Projects & Workspaces'}
                 </h3>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-indigo-100 text-indigo-800 border border-indigo-200">
-                  {projects.length} Registered
+                  {safeProjects.length} Registered
                 </span>
               </div>
               <p className="text-xs text-slate-500">
@@ -301,13 +302,13 @@ export default function ProjectModal({
                 </button>
               </div>
 
-              {projects.length === 0 ? (
+              {safeProjects.length === 0 ? (
                 <div className="text-center py-10 text-xs text-slate-500 italic">
                   No software projects found. Click "Add Project" to register your first system.
                 </div>
               ) : (
                 <div className="grid grid-cols-1 gap-3">
-                  {projects.map((p) => {
+                  {safeProjects.map((p) => {
                     const isSelected = selectedProjectId === p.id;
                     const envVarKeys = p.env_vars && typeof p.env_vars === 'object' ? Object.keys(p.env_vars) : [];
                     const envCount = envVarKeys.length;
