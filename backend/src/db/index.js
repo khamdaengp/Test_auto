@@ -25,6 +25,11 @@ async function initDb() {
       console.log('[PostgreSQL] Checking and initializing database schema...');
       await client.query(schemaSql);
 
+      // Safe column migrations for projects
+      await client.query(`
+        ALTER TABLE projects ADD COLUMN IF NOT EXISTS env_vars JSONB DEFAULT '{}';
+      `);
+
       // Safe column migrations for test_suites
       await client.query(`
         ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS schedule_cron VARCHAR(100);

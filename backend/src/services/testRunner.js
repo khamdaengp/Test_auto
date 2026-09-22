@@ -423,10 +423,38 @@ async function runTest(suiteId, options = {}, io = null) {
     });
   }
 
+  // Load project-specific environment variables if assigned
+  let projectEnv = {};
+  if (assignedProjectId) {
+    try {
+      const projRes = await db.query('SELECT name, base_url, env_vars FROM projects WHERE id = $1', [assignedProjectId]);
+      if (projRes.rows.length > 0) {
+        const proj = projRes.rows[0];
+        if (proj.env_vars && typeof proj.env_vars === 'object') {
+          projectEnv = { ...proj.env_vars };
+        }
+        if (proj.base_url && !projectEnv.BASE_URL) {
+          projectEnv.BASE_URL = proj.base_url;
+        }
+        if (proj.base_url && !projectEnv.API_BASE_URL) {
+          projectEnv.API_BASE_URL = proj.base_url;
+        }
+        const envKeys = Object.keys(projectEnv);
+        if (envKeys.length > 0) {
+          await addLog('system', `[Runner] Loaded ${envKeys.length} project environment variable(s) for "${proj.name}" (${assignedProjectId}): ${envKeys.join(', ')}`);
+        }
+      }
+    } catch (projErr) {
+      console.warn('[Runner] Failed to fetch project env_vars:', projErr.message);
+    }
+  }
+
   const child = spawn(cmd, args, {
     cwd: config.playwrightRoot,
     env: {
       ...process.env,
+      ...projectEnv,
+      ...(options.env || {}),
       FORCE_COLOR: '0',
       PLAYWRIGHT_JSON_OUTPUT_NAME: reportPath,
       TEST_ENV: environment,

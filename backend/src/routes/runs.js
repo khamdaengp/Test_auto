@@ -118,10 +118,11 @@ router.post('/run', async (req, res) => {
       return res.status(400).json({ error: 'suiteId is required' });
     }
 
+    const runOptions = options ? { ...options, ...(req.body.projectId ? { projectId: req.body.projectId } : {}) } : req.body;
     const io = req.app.get('io');
     
     // Asynchronously kick off run
-    runTest(suiteId, options || {}, io).catch((err) => {
+    runTest(suiteId, runOptions, io).catch((err) => {
       console.error('[Runner] Error executing test in background:', err);
     });
 
