@@ -416,6 +416,8 @@ async function runTest(suiteId, options = {}, io = null) {
       TEST_ENV: environment,
       PLAYWRIGHT_VIDEO: videoOption,
       PLAYWRIGHT_SCREENSHOT: screenshotOption,
+      npm_config_loglevel: 'error',
+      npm_config_notice: 'false',
       ...(options.baseUrlOverride ? { PLAYWRIGHT_TEST_BASE_URL: options.baseUrlOverride } : {}),
       ...(options.dataset ? { PLAYWRIGHT_TEST_DATASET: JSON.stringify(options.dataset) } : {}),
     },
@@ -427,7 +429,7 @@ async function runTest(suiteId, options = {}, io = null) {
 
   child.stdout.on('data', async (chunk) => {
     const text = chunk.toString();
-    const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
+    const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0 && !l.startsWith('npm notice'));
     for (const line of lines) {
       await addLog('stdout', line);
     }
@@ -435,7 +437,7 @@ async function runTest(suiteId, options = {}, io = null) {
 
   child.stderr.on('data', async (chunk) => {
     const text = chunk.toString();
-    const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
+    const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0 && !l.startsWith('npm notice'));
     for (const line of lines) {
       await addLog('stderr', line);
     }
