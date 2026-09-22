@@ -57,6 +57,16 @@ export default function TestSuitesTable({
   const [filterQuery, setFilterQuery] = useState('');
   const [localType, setLocalType] = useState('all');
   const [openOptionsSuiteId, setOpenOptionsSuiteId] = useState(null);
+  const [expandedDescIds, setExpandedDescIds] = useState(new Set());
+
+  const toggleDescExpand = (id) => {
+    setExpandedDescIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
   const [runOptions, setRunOptions] = useState({
     environment: 'default',
     workers: 1,
@@ -540,19 +550,60 @@ export default function TestSuitesTable({
                               </span>
                             )}
                           </div>
-                          <p className="text-slate-500 text-[11px] mt-0.5 line-clamp-1 leading-snug" title={suite.description || 'Click Edit Suite to customize description'}>
-                            {suite.description || (
-                              <span className="italic text-slate-400">
-                                {suite.type === 'database'
-                                  ? 'Database schema & record integrity verification'
-                                  : suite.type === 'api'
-                                  ? 'API endpoint request & response validation'
-                                  : suite.type === 'mobile'
-                                  ? 'Mobile emulation user flow verification'
-                                  : 'Automated end-to-end user scenario testing'}
-                              </span>
-                            )}
-                          </p>
+                          {(() => {
+                            const descText = suite.description || null;
+                            const fallbackText =
+                              suite.type === 'database'
+                                ? 'Database schema & record integrity verification'
+                                : suite.type === 'api'
+                                ? 'API endpoint request & response validation'
+                                : suite.type === 'mobile'
+                                ? 'Mobile emulation user flow verification'
+                                : 'Automated end-to-end user scenario testing';
+                            const isExpanded = expandedDescIds.has(suite.id);
+                            const TRUNCATE_LEN = 80;
+                            const isTruncatable = descText && descText.length > TRUNCATE_LEN;
+                            const displayText = descText
+                              ? isExpanded
+                                ? descText
+                                : descText.slice(0, TRUNCATE_LEN).trimEnd()
+                              : null;
+                            return (
+                              <div className="mt-0.5">
+                                <p className="text-slate-500 text-[11px] leading-snug inline">
+                                  {displayText ? (
+                                    <>
+                                      {displayText}
+                                      {isTruncatable && !isExpanded && (
+                                        <span className="text-slate-400">...</span>
+                                      )}
+                                    </>
+                                  ) : (
+                                    <span className="italic text-slate-400">{fallbackText}</span>
+                                  )}
+                                </p>
+                                {isTruncatable && (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); toggleDescExpand(suite.id); }}
+                                    className="ml-1 inline-flex items-center gap-0.5 text-[10px] text-indigo-500 hover:text-indigo-700 font-medium transition-colors"
+                                    title={isExpanded ? 'Collapse description' : 'Expand full description'}
+                                  >
+                                    {isExpanded ? (
+                                      <>
+                                        <ChevronDown className="w-2.5 h-2.5 rotate-180" />
+                                        <span>ຫຍໍ້</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <ChevronDown className="w-2.5 h-2.5" />
+                                        <span>ເບິ່ງເພີ່ມ</span>
+                                      </>
+                                    )}
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })()}
                           <div className="flex flex-wrap items-center gap-1.5 mt-1">
                             {suite.scheduleCron && (
                               <span
