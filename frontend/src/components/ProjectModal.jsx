@@ -123,10 +123,11 @@ export default function ProjectModal({
 
   // Quick Preset Handlers
   const handleApplyApiPresets = () => {
-    const defaultBaseUrl = formData.baseUrl || 'http://10.120.44.76:8500';
+    const webBaseUrl = formData.baseUrl || 'http://10.120.44.76:8441/#console/dashboard/v1';
+    const apiBaseUrl = 'http://10.120.44.76:8500';
     const presets = [
-      { key: 'BASE_URL', value: defaultBaseUrl },
-      { key: 'API_BASE_URL', value: defaultBaseUrl },
+      { key: 'BASE_URL', value: webBaseUrl },
+      { key: 'API_BASE_URL', value: apiBaseUrl },
       { key: 'API_TOKEN', value: 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJtYmNjc3xCQ0NTM19GVUxMIiwidXNlcm5hbWUiOiJtYmNjc3xCQ0NTM19GVUxMIiwiaXNzIjoibWJjY3MtY2xpZW50IiwiaWF0IjoxNzkwMDc1Njc4LCJleHAiOjE3OTAxNjIwNzh9.LoXhiBoQIZ_JIPjxUbdwb1qrpRRb6Ce3-Jhs6MvMSKw' },
       { key: 'API_SESSION_ID', value: 'de4e7258-5c79-4ac3-8eba-54158a430174' },
       { key: 'API_USERNAME', value: 'BCCS3_FULL' },
