@@ -819,39 +819,50 @@ test.describe('Database Integrity: Foreign Key Constraints', () => {
 ];
 
 // Helper to convert Visual Database Steps into Playwright Script
-function generateDatabaseCodeFromSteps(steps, dbUrl = 'postgresql://qa_user:qa_password@localhost:5434/qa_dashboard') {
+function generateDatabaseCodeFromSteps(steps, dbUrl = '') {
   let testCases = '';
+  const isPostgres = typeof dbUrl === 'string' && (dbUrl.includes('postgresql:') || dbUrl.includes(':5432') || dbUrl.includes(':5434'));
 
   steps.forEach((step, idx) => {
-    const title = step.desc || `Step ${idx + 1}: Execute ${step.type || 'SQL'} check`;
+    const title = step.desc || `Step ${idx + 1}: Execute ${step.type || 'database'} check`;
     let body = '';
 
-    if (step.type === 'ping') {
-      body = `    const res = await client.query('SELECT 1 AS ping, current_database() AS db_name');
+    if (isPostgres) {
+      if (step.type === 'ping') {
+        body = `    const res = await client.query('SELECT 1 AS ping, current_database() AS db_name');
     expect(res.rows.length).toBe(1);
     expect(res.rows[0].ping).toBe(1);`;
-    } else if (step.type === 'table_exists') {
-      const tbl = step.targetTable || 'test_suites';
-      body = `    const res = await client.query(\`
+      } else if (step.type === 'table_exists') {
+        const tbl = (step.targetTable || 'test_suites').trim();
+        body = `    const res = await client.query(\`
       SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = '${tbl}'
     \`);
     expect(res.rows.length).toBeGreaterThanOrEqual(1);`;
-    } else if (step.type === 'row_count') {
-      const tbl = step.targetTable || 'test_runs';
-      body = `    const res = await client.query('SELECT COUNT(*) AS count FROM ${tbl}');
+      } else if (step.type === 'record_status') {
+        const tbl = (step.targetTable || 'test_suites').trim();
+        const fCol = (step.filterCol || 'id').trim();
+        const fVal = (step.filterVal || '1').trim();
+        const aCol = (step.assertCol || 'status').trim();
+        const aVal = (step.assertVal || '1').trim();
+        body = `    const res = await client.query('SELECT * FROM ${tbl} WHERE ${fCol} = $1 LIMIT 1', ['${fVal}']);
+    expect(res.rows.length).toBeGreaterThanOrEqual(1);
+    expect(String(res.rows[0]['${aCol}'])).toBe('${aVal}');`;
+      } else if (step.type === 'row_count') {
+        const tbl = (step.targetTable || 'test_runs').trim();
+        body = `    const res = await client.query('SELECT COUNT(*) AS count FROM ${tbl}');
     expect(parseInt(res.rows[0].count, 10)).toBeGreaterThanOrEqual(${parseInt(step.expectedRows, 10) || 0});`;
-    } else {
-      const sql = step.query || 'SELECT 1 AS result';
-      body = `    const res = await client.query('${sql.replace(/'/g, "\\'")}');\n`;
-      if (step.assertCol && step.assertVal) {
-        body += `    expect(res.rows.length).toBeGreaterThanOrEqual(1);\n`;
-        body += `    expect(String(res.rows[0]['${step.assertCol}'])).toBe('${step.assertVal}');`;
       } else {
-        body += `    expect(res.rows.length).toBeGreaterThanOrEqual(1);`;
+        const sql = (step.query || 'SELECT 1 AS result').trim();
+        body = `    const res = await client.query('${sql.replace(/'/g, "\\'")}');\n`;
+        if (step.assertCol && step.assertVal) {
+          body += `    expect(res.rows.length).toBeGreaterThanOrEqual(1);\n`;
+          body += `    expect(String(res.rows[0]['${step.assertCol}'])).toBe('${step.assertVal}');`;
+        } else {
+          body += `    expect(res.rows.length).toBeGreaterThanOrEqual(1);`;
+        }
       }
-    }
 
-    testCases += `  test('${idx + 1}. ${title.replace(/'/g, "\\'")}', async () => {
+      testCases += `  test('${idx + 1}. ${title.replace(/'/g, "\\'")}', async () => {
     const client = await pool.connect();
     try {
 ${body}
@@ -859,9 +870,89 @@ ${body}
       client.release();
     }
   });\n\n`;
+    } else {
+      // Default: Modern MariaDB / MySQL Enterprise Engine
+      if (step.type === 'ping') {
+        body = `    const [rows]: [any[], any] = await pool.query(
+      'SELECT 1 AS ping, VERSION() AS version, DATABASE() AS current_db, NOW() AS server_time'
+    );
+    expect(rows.length).toBe(1);
+    expect(rows[0].ping).toBe(1);`;
+      } else if (step.type === 'table_exists') {
+        const tbl = (step.targetTable || 'users').trim();
+        body = `    const [tables]: [any[], any] = await pool.query('SHOW TABLES LIKE ?', ['${tbl}']);
+    expect(tables.length).toBeGreaterThanOrEqual(1);`;
+      } else if (step.type === 'record_status') {
+        const tbl = (step.targetTable || 'users').trim();
+        const fCol = (step.filterCol || 'USER_NAME').trim();
+        const fVal = (step.filterVal || 'bccs3_full').trim();
+        const aCol = (step.assertCol || 'STATUS').trim();
+        const aVal = (step.assertVal || '1').trim();
+        body = `    const [rows]: [any[], any] = await pool.query(
+      'SELECT * FROM ${tbl} WHERE ${fCol} = ? LIMIT 1',
+      ['${fVal}']
+    );
+    expect(rows.length).toBeGreaterThanOrEqual(1);
+    expect(String(rows[0]['${aCol}'])).toBe('${aVal}');`;
+      } else if (step.type === 'row_count') {
+        const tbl = (step.targetTable || 'users').trim();
+        const minRows = parseInt(step.expectedRows, 10) || 1;
+        body = `    const [res]: [any[], any] = await pool.query('SELECT COUNT(*) AS count FROM ${tbl}');
+    expect(Number(res[0].count)).toBeGreaterThanOrEqual(${minRows});`;
+      } else if (step.type === 'api_and_db') {
+        const wsCode = step.wsCode || 'WS_createConnectorCodeWithSaleStaff';
+        const tbl = (step.targetTable || 'bccs3_catalog_la.staff').trim();
+        const fCol = (step.filterCol || 'staff_code').trim();
+        const fVal = (step.filterVal || '550112090').trim();
+        const aCol = (step.assertCol || 'status').trim();
+        const aVal = (step.assertVal || '1').trim();
+        body = `    // Step A: Send API Request
+    const response = await request.post(\`\${process.env.API_BASE_URL || 'http://10.120.44.76:8500'}/ApiGateway/CoreService/UserRouting\`, {
+      data: {
+        wsCode: '${wsCode}',
+        wsRequest: {
+          type: '2',
+          branch: '41',
+          businessCenter: '3367',
+          saleStaff: '${fVal}',
+          status: '1',
+          account: '2092326652'
+        },
+        username: process.env.API_USERNAME || 'BCCS3_FULL',
+        sessionId: process.env.API_SESSION_ID || '',
+        token: process.env.API_TOKEN || ''
+      },
+      headers: { 'Content-Type': 'application/json' },
+    });
+    expect(response.status()).toBe(200);
+
+    // Step B: Direct Database Verification
+    const [rows]: [any[], any] = await pool.query(
+      'SELECT * FROM ${tbl} WHERE ${fCol} = ? LIMIT 1',
+      ['${fVal}']
+    );
+    expect(rows.length).toBeGreaterThanOrEqual(1);
+    expect(String(rows[0]['${aCol}'])).toBe('${aVal}');`;
+      } else {
+        const sql = (step.query || 'SELECT 1 AS result').trim();
+        body = `    const [rows]: [any[], any] = await pool.query('${sql.replace(/'/g, "\\'")}');\n`;
+        if (step.assertCol && step.assertVal) {
+          body += `    expect(rows.length).toBeGreaterThanOrEqual(1);\n`;
+          body += `    expect(String(rows[0]['${step.assertCol}'])).toBe('${step.assertVal}');`;
+        } else {
+          body += `    expect(rows.length).toBeGreaterThanOrEqual(1);`;
+        }
+      }
+
+      const arg = step.type === 'api_and_db' ? '{ request }' : '()';
+      testCases += `  test('${idx + 1}. ${title.replace(/'/g, "\\'")}', async (${arg}) => {
+${body}
+  });\n\n`;
+    }
   });
 
-  return `import { test, expect } from '@playwright/test';
+  if (isPostgres) {
+    return `import { test, expect } from '@playwright/test';
 import { Pool } from 'pg';
 
 test.describe('Automated Database Verification Suite', () => {
@@ -871,6 +962,40 @@ test.describe('Automated Database Verification Suite', () => {
     pool = new Pool({
       connectionString: process.env.DATABASE_URL || '${dbUrl || 'postgresql://qa_user:qa_password@localhost:5434/qa_dashboard'}',
       connectionTimeoutMillis: 5000,
+    });
+  });
+
+  test.afterAll(async () => {
+    if (pool) await pool.end();
+  });
+
+${testCases.trimEnd()}
+});
+`;
+  }
+
+  return `import { test, expect } from '@playwright/test';
+import mysql from 'mysql2/promise';
+
+const DB_HOST = process.env.MARIADB_HOST || '10.120.254.144';
+const DB_PORT = parseInt(process.env.MARIADB_PORT || '3306', 10);
+const DB_USER = process.env.MARIADB_USER || 'bccs3_stl';
+const DB_PASSWORD = process.env.MARIADB_PASSWORD || 'bCcs3#St1';
+const DB_NAME = process.env.MARIADB_DATABASE || 'bccs3_vsa_la';
+
+test.describe('Automated Database Verification Suite', () => {
+  let pool: mysql.Pool;
+
+  test.beforeAll(async () => {
+    pool = mysql.createPool({
+      host: DB_HOST,
+      port: DB_PORT,
+      user: DB_USER,
+      password: DB_PASSWORD,
+      database: DB_NAME,
+      waitForConnections: true,
+      connectionLimit: 5,
+      connectTimeout: 10_000,
     });
   });
 
@@ -1649,60 +1774,158 @@ function parseApiCodeToSteps(code) {
 }
 
 function parseDatabaseCodeToSteps(code) {
+  if (!code || typeof code !== 'string') return [];
   const steps = [];
-  const queryRegex = /client\.query\(\s*(?:`([\s\S]*?)`|(['"`])([\s\S]*?)\2)/gi;
+
+  // Method A: Parse by Playwright test('...', async (...) => { ... }) blocks
+  const testBlockRegex = /test\(\s*(['"`])(.*?)\1\s*,\s*async\s*\((.*?)\)\s*=>\s*\{([\s\S]*?)(?=\n\s*\}\s*\);?|\s*\}\s*\);?$)/g;
   let match;
   let idx = 1;
 
-  while ((match = queryRegex.exec(code)) !== null) {
-    const sql = (match[1] || match[3] || '').trim();
-    if (!sql) continue;
+  while ((match = testBlockRegex.exec(code)) !== null) {
+    const title = match[2].trim();
+    const body = match[4].trim();
 
-    if (sql.includes('SELECT 1 AS ping') || sql.includes('version()')) {
-      steps.push({
-        id: Date.now() + idx,
-        type: 'ping',
-        targetTable: '',
-        expectedRows: '1',
-        assertCol: 'ping',
-        assertVal: '1',
-        desc: 'PostgreSQL connection ping & health check',
-      });
-    } else if (sql.includes('information_schema.tables')) {
-      const tblMatch = sql.match(/table_name\s*=\s*['"]([a-zA-Z0-9_-]+)['"]/);
-      steps.push({
-        id: Date.now() + idx,
-        type: 'table_exists',
-        targetTable: tblMatch ? tblMatch[1] : 'test_suites',
-        expectedRows: '1',
-        assertCol: '',
-        assertVal: '',
-        desc: `Verify table "${tblMatch ? tblMatch[1] : 'table'}" exists`,
-      });
-    } else if (sql.includes('COUNT(') || sql.includes('count(')) {
-      const tblMatch = sql.match(/FROM\s+([a-zA-Z0-9_-]+)/i);
-      steps.push({
-        id: Date.now() + idx,
-        type: 'row_count',
-        targetTable: tblMatch ? tblMatch[1] : 'test_runs',
-        expectedRows: '0',
-        assertCol: '',
-        assertVal: '',
-        desc: `Verify "${tblMatch ? tblMatch[1] : 'table'}" has accessible records`,
-      });
-    } else {
-      steps.push({
-        id: Date.now() + idx,
-        type: 'query',
-        targetTable: '',
-        query: sql,
-        expectedRows: '1',
-        assertCol: '',
-        assertVal: '',
-        desc: `Execute SQL: ${sql.slice(0, 32).replace(/\n/g, ' ')}...`,
-      });
+    let type = 'custom_sql';
+    let targetTable = '';
+    let filterCol = '';
+    let filterVal = '';
+    let assertCol = '';
+    let assertVal = '';
+    let expectedRows = '1';
+    let wsCode = '';
+    let query = '';
+
+    // 1. API + Database Verification check
+    if (body.includes('request.post') || body.includes('request.get') || body.includes('UserRouting') || body.includes('wsCode')) {
+      type = 'api_and_db';
+      const wsMatch = body.match(/['"]?wsCode['"]?\s*:\s*['"]([^'"]+)['"]/);
+      if (wsMatch) wsCode = wsMatch[1];
+      const fromMatch = body.match(/FROM\s+([a-zA-Z0-9_.]+)/i);
+      if (fromMatch) targetTable = fromMatch[1];
+      const whereMatch = body.match(/WHERE\s+([a-zA-Z0-9_]+)\s*=\s*\?\s*,\s*\[['"]([^'"]+)['"]\]/i);
+      if (whereMatch) {
+        filterCol = whereMatch[1];
+        filterVal = whereMatch[2];
+      }
+      const assertMatch = body.match(/expect\s*\(\s*String\s*\(\s*[\w$]+(?:\[0\]|\.rows\[0\])\s*\[\s*['"]([^'"]+)['"]\s*\]\s*\)\s*\)\s*\.toBe\s*\(\s*['"]([^'"]+)['"]\s*\)/i);
+      if (assertMatch) {
+        assertCol = assertMatch[1];
+        assertVal = assertMatch[2];
+      }
     }
+    // 2. Ping / Health check
+    else if (body.includes('SELECT 1 AS ping') || body.includes('VERSION()') || body.includes('ping')) {
+      type = 'ping';
+    }
+    // 3. Table exists check
+    else if (body.includes('SHOW TABLES') || body.includes('information_schema.tables')) {
+      type = 'table_exists';
+      const paramMatch = body.match(/\[\s*['"]([^'"]+)['"]\s*\]/);
+      const tblMatch = body.match(/(?:LIKE\s*['"]([^'"]+)['"]|table_name\s*=\s*['"]([^'"]+)['"])/i);
+      targetTable = paramMatch ? paramMatch[1] : (tblMatch ? (tblMatch[1] || tblMatch[2]) : 'users');
+    }
+    // 4. Row count check
+    else if (body.includes('COUNT(') || body.includes('count(')) {
+      type = 'row_count';
+      const fromMatch = body.match(/FROM\s+([a-zA-Z0-9_.]+)/i);
+      if (fromMatch) targetTable = fromMatch[1];
+      const numMatch = body.match(/toBeGreaterThanOrEqual\s*\(\s*(\d+)\s*\)/);
+      if (numMatch) expectedRows = numMatch[1];
+    }
+    // 5. Record / Account Status check
+    else if (body.includes('WHERE') && (body.includes('SELECT') || body.includes('select'))) {
+      type = 'record_status';
+      const fromMatch = body.match(/FROM\s+([a-zA-Z0-9_.]+)/i);
+      if (fromMatch) targetTable = fromMatch[1];
+      const whereMatch = body.match(/WHERE\s+([a-zA-Z0-9_]+(?:\([a-zA-Z0-9_]+\))?)\s*=\s*\?\s*,\s*\[['"]([^'"]+)['"]\]/i)
+        || body.match(/WHERE\s+([a-zA-Z0-9_]+)\s*=\s*['"]([^'"]+)['"]/i);
+      if (whereMatch) {
+        filterCol = whereMatch[1];
+        filterVal = whereMatch[2];
+      }
+      const assertMatch = body.match(/expect\s*\(\s*(?:String\s*\(\s*)?[\w$]+(?:\[0\]|\.rows\[0\])\s*\[\s*['"]([^'"]+)['"]\s*\](?:\s*\))?\s*\)\s*\.toBe\s*\(\s*['"]?([^'")]+)['"]?\s*\)/i);
+      if (assertMatch) {
+        assertCol = assertMatch[1];
+        assertVal = assertMatch[2];
+      }
+    }
+    // 6. Custom SQL query
+    else {
+      type = 'custom_sql';
+      const qMatch = body.match(/(?:query|execute)\s*\(\s*(?:`([\s\S]*?)`|(['"`])([\s\S]*?)\2)/i);
+      if (qMatch) query = (qMatch[1] || qMatch[3] || '').trim();
+    }
+
+    steps.push({
+      id: Date.now() + idx,
+      type,
+      targetTable: targetTable || (type === 'table_exists' ? 'users' : ''),
+      filterCol,
+      filterVal,
+      assertCol,
+      assertVal,
+      expectedRows: expectedRows || '1',
+      wsCode,
+      query,
+      desc: title || `Step ${idx}: Database verification`,
+    });
     idx++;
+  }
+
+  // Fallback Method B: Scan direct query statements if no test() blocks matched
+  if (steps.length === 0) {
+    const queryRegex = /(?:pool|conn|client)\.query\(\s*(?:`([\s\S]*?)`|(['"`])([\s\S]*?)\2)/gi;
+    while ((match = queryRegex.exec(code)) !== null) {
+      const sql = (match[1] || match[3] || '').trim();
+      if (!sql) continue;
+
+      if (sql.includes('SELECT 1 AS ping') || sql.includes('VERSION()')) {
+        steps.push({
+          id: Date.now() + idx,
+          type: 'ping',
+          targetTable: '',
+          expectedRows: '1',
+          assertCol: 'ping',
+          assertVal: '1',
+          desc: 'Test Database Connection & Version',
+        });
+      } else if (sql.includes('information_schema.tables') || sql.includes('SHOW TABLES')) {
+        const tblMatch = sql.match(/table_name\s*=\s*['"]([a-zA-Z0-9_-]+)['"]/) || sql.match(/LIKE\s*['"]([a-zA-Z0-9_-]+)['"]/);
+        steps.push({
+          id: Date.now() + idx,
+          type: 'table_exists',
+          targetTable: tblMatch ? tblMatch[1] : 'users',
+          expectedRows: '1',
+          assertCol: '',
+          assertVal: '',
+          desc: `Verify table "${tblMatch ? tblMatch[1] : 'table'}" exists`,
+        });
+      } else if (sql.includes('COUNT(') || sql.includes('count(')) {
+        const tblMatch = sql.match(/FROM\s+([a-zA-Z0-9_-]+)/i);
+        steps.push({
+          id: Date.now() + idx,
+          type: 'row_count',
+          targetTable: tblMatch ? tblMatch[1] : 'users',
+          expectedRows: '1',
+          assertCol: '',
+          assertVal: '',
+          desc: `Verify row count in "${tblMatch ? tblMatch[1] : 'table'}"`,
+        });
+      } else {
+        steps.push({
+          id: Date.now() + idx,
+          type: 'custom_sql',
+          targetTable: '',
+          query: sql,
+          expectedRows: '1',
+          assertCol: '',
+          assertVal: '',
+          desc: `Execute SQL: ${sql.slice(0, 32).replace(/\n/g, ' ')}...`,
+        });
+      }
+      idx++;
+    }
   }
 
   return steps;
@@ -1750,9 +1973,10 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
 
   // Visual No-Code Steps for Database Testing
   const [databaseSteps, setDatabaseSteps] = useState([
-    { id: 1, type: 'ping', targetTable: '', expectedRows: '1', assertCol: 'ping', assertVal: '1', desc: 'PostgreSQL connection ping & health check' },
-    { id: 2, type: 'table_exists', targetTable: 'test_suites', expectedRows: '1', assertCol: '', assertVal: '', desc: 'Verify core table "test_suites" exists in schema' },
-    { id: 3, type: 'row_count', targetTable: 'test_runs', expectedRows: '0', assertCol: '', assertVal: '', desc: 'Verify "test_runs" table has accessible records' },
+    { id: 1, type: 'ping', targetTable: '', expectedRows: '1', assertCol: 'ping', assertVal: '1', desc: 'Database Health & Version Verification' },
+    { id: 2, type: 'table_exists', targetTable: 'bccs3_vsa_la.users', expectedRows: '1', assertCol: '', assertVal: '', desc: 'Verify Table "bccs3_vsa_la.users" Exists' },
+    { id: 3, type: 'record_status', targetTable: 'bccs3_vsa_la.users', filterCol: 'USER_NAME', filterVal: 'bccs3_full', assertCol: 'STATUS', assertVal: '1', expectedRows: '1', desc: 'Verify Account Status for bccs3_full is Active (1)' },
+    { id: 4, type: 'api_and_db', targetTable: 'bccs3_catalog_la.staff', filterCol: 'staff_code', filterVal: '550112090', assertCol: 'status', assertVal: '1', wsCode: 'WS_createConnectorCodeWithSaleStaff', desc: 'Execute WS_createConnectorCodeWithSaleStaff API and Verify DB Consistency' },
   ]);
 
   // Synchronize Playwright Code Script from Tab 3 into Visual Steps in Tab 1
@@ -2017,19 +2241,59 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
     const newStep = {
       id: newId,
       type,
-      targetTable: type === 'table_exists' ? 'test_results' : type === 'row_count' ? 'test_suites' : '',
+      targetTable:
+        type === 'table_exists'
+          ? 'bccs3_vsa_la.users'
+          : type === 'record_status'
+          ? 'bccs3_vsa_la.users'
+          : type === 'row_count'
+          ? 'bccs3_vsa_la.users'
+          : type === 'api_and_db'
+          ? 'bccs3_catalog_la.staff'
+          : '',
       query: type === 'custom_sql' ? 'SELECT 1 AS status' : '',
       expectedRows: '1',
-      assertCol: type === 'ping' ? 'ping' : '',
-      assertVal: type === 'ping' ? '1' : '',
+      filterCol:
+        type === 'record_status'
+          ? 'USER_NAME'
+          : type === 'api_and_db'
+          ? 'staff_code'
+          : '',
+      filterVal:
+        type === 'record_status'
+          ? 'bccs3_full'
+          : type === 'api_and_db'
+          ? '550112090'
+          : '',
+      assertCol:
+        type === 'ping'
+          ? 'ping'
+          : type === 'record_status'
+          ? 'STATUS'
+          : type === 'api_and_db'
+          ? 'status'
+          : '',
+      assertVal:
+        type === 'ping'
+          ? '1'
+          : type === 'record_status'
+          ? '1'
+          : type === 'api_and_db'
+          ? '1'
+          : '',
+      wsCode: type === 'api_and_db' ? 'WS_createConnectorCodeWithSaleStaff' : '',
       desc:
         type === 'ping'
-          ? 'PostgreSQL connection ping & database name check'
+          ? 'Database Connection Health & Version Verification'
           : type === 'table_exists'
-          ? 'Verify table exists in public schema'
+          ? 'Verify Table Exists in Target Database'
+          : type === 'record_status'
+          ? 'Verify Account & Record Status from Database'
+          : type === 'api_and_db'
+          ? 'Execute API Action & Verify Database Consistency'
           : type === 'row_count'
-          ? 'Verify row count threshold on table'
-          : 'Custom SQL query execution & assertion',
+          ? 'Verify Minimum Active Row Count Threshold'
+          : 'Execute Custom SQL Query Assertion',
     };
 
     const updated = [...databaseSteps, newStep];
@@ -3325,11 +3589,11 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
                       <span>Visual Database Verification Steps (No-Code SQL Builder)</span>
                     </h4>
                     <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
-                      Synced from Tab 3 Code
+                      Synced with Tab 3 Playwright Code
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-500 mt-0.5">
-                    Configure direct PostgreSQL queries, table existence checks, row count thresholds, and schema assertions.
+                    Build database and API-to-database assertions visually. Every step here directly generates a matching test case in Tab 3!
                   </p>
                 </div>
 
@@ -3346,8 +3610,21 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
                   </button>
                   <button
                     type="button"
+                    onClick={() => {
+                      const newCode = generateDatabaseCodeFromSteps(databaseSteps, formData.targetUrl);
+                      setFormData((prev) => ({ ...prev, code: newCode }));
+                      setActiveTab('code');
+                    }}
+                    className="px-2.5 py-1 rounded-md bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-semibold flex items-center space-x-1 transition cursor-pointer"
+                    title="Generate Playwright script from these visual steps and switch to Code Editor"
+                  >
+                    <Code className="w-3 h-3" />
+                    <span>Push to Code (Tab 3)</span>
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => handleAddDbStep('ping')}
-                    className="px-2.5 py-1 rounded-md bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold flex items-center space-x-1 transition border border-blue-200 cursor-pointer"
+                    className="px-2 py-1 rounded-md bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold flex items-center space-x-1 transition border border-blue-200 cursor-pointer"
                   >
                     <Plus className="w-3 h-3" />
                     <span>+ Ping Engine</span>
@@ -3355,15 +3632,31 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
                   <button
                     type="button"
                     onClick={() => handleAddDbStep('table_exists')}
-                    className="px-2.5 py-1 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-semibold flex items-center space-x-1 transition border border-emerald-200 cursor-pointer"
+                    className="px-2 py-1 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-semibold flex items-center space-x-1 transition border border-emerald-200 cursor-pointer"
                   >
                     <Plus className="w-3 h-3" />
                     <span>+ Table Exists</span>
                   </button>
                   <button
                     type="button"
+                    onClick={() => handleAddDbStep('record_status')}
+                    className="px-2 py-1 rounded-md bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold flex items-center space-x-1 transition border border-indigo-200 cursor-pointer"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>+ Record / Status</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleAddDbStep('api_and_db')}
+                    className="px-2 py-1 rounded-md bg-teal-50 hover:bg-teal-100 text-teal-700 text-xs font-semibold flex items-center space-x-1 transition border border-teal-200 cursor-pointer"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>+ API & DB Sync</span>
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => handleAddDbStep('row_count')}
-                    className="px-2.5 py-1 rounded-md bg-amber-50 hover:bg-amber-100 text-amber-700 text-xs font-semibold flex items-center space-x-1 transition border border-amber-200 cursor-pointer"
+                    className="px-2 py-1 rounded-md bg-amber-50 hover:bg-amber-100 text-amber-700 text-xs font-semibold flex items-center space-x-1 transition border border-amber-200 cursor-pointer"
                   >
                     <Plus className="w-3 h-3" />
                     <span>+ Row Count</span>
@@ -3371,7 +3664,7 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
                   <button
                     type="button"
                     onClick={() => handleAddDbStep('custom_sql')}
-                    className="px-2.5 py-1 rounded-md bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-semibold flex items-center space-x-1 transition border border-purple-200 cursor-pointer"
+                    className="px-2 py-1 rounded-md bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-semibold flex items-center space-x-1 transition border border-purple-200 cursor-pointer"
                   >
                     <Plus className="w-3 h-3" />
                     <span>+ Custom SQL</span>
@@ -3387,7 +3680,7 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
                     className="p-3.5 rounded-xl border border-slate-200 bg-white hover:border-amber-300 transition shadow-2xs space-y-3"
                   >
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                      <div className="flex items-center space-x-2">
+                      <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                         <span className="w-6 h-6 rounded-full bg-slate-100 text-slate-700 font-mono text-[11px] font-bold flex items-center justify-center flex-shrink-0">
                           {idx + 1}
                         </span>
@@ -3396,90 +3689,58 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
                         <select
                           value={step.type}
                           onChange={(e) => handleUpdateDbStep(step.id, 'type', e.target.value)}
-                          className={`px-2 py-1 rounded-lg text-xs font-bold border focus:outline-none cursor-pointer ${
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold border focus:outline-none cursor-pointer ${
                             step.type === 'ping'
                               ? 'bg-blue-50 text-blue-700 border-blue-200'
                               : step.type === 'table_exists'
                               ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : step.type === 'record_status'
+                              ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                              : step.type === 'api_and_db'
+                              ? 'bg-teal-50 text-teal-700 border-teal-200'
                               : step.type === 'row_count'
                               ? 'bg-amber-50 text-amber-700 border-amber-200'
                               : 'bg-purple-50 text-purple-700 border-purple-200'
                           }`}
                         >
-                          <option value="ping">Ping / Health</option>
-                          <option value="table_exists">Table Exists</option>
-                          <option value="row_count">Row Count</option>
-                          <option value="custom_sql">Custom SQL</option>
+                          <option value="ping">Ping / Health Engine</option>
+                          <option value="table_exists">Table Exists Check</option>
+                          <option value="record_status">Record / Account Status</option>
+                          <option value="api_and_db">API + DB Sync Check</option>
+                          <option value="row_count">Row Count Threshold</option>
+                          <option value="custom_sql">Custom SQL Query</option>
                         </select>
 
-                        {/* Target Table or SQL Query */}
-                        {step.type === 'table_exists' || step.type === 'row_count' ? (
-                          <div className="flex-1 min-w-[200px]">
-                            <input
-                              type="text"
-                              value={step.targetTable}
-                              onChange={(e) => handleUpdateDbStep(step.id, 'targetTable', e.target.value)}
-                              placeholder="Table name (e.g. test_suites, test_runs)"
-                              className="w-full px-2.5 py-1 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:ring-1 focus:ring-amber-500 font-mono"
-                            />
-                          </div>
-                        ) : step.type === 'custom_sql' ? (
-                          <div className="flex-1 min-w-[200px]">
-                            <input
-                              type="text"
-                              value={step.query || ''}
-                              onChange={(e) => handleUpdateDbStep(step.id, 'query', e.target.value)}
-                              placeholder="SELECT status FROM test_runs LIMIT 1"
-                              className="w-full px-2.5 py-1 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:ring-1 focus:ring-amber-500 font-mono"
-                            />
-                          </div>
-                        ) : (
-                          <div className="text-xs text-slate-500 italic px-2">
-                            SELECT 1 AS ping, current_database() AS db_name
-                          </div>
-                        )}
+                        {/* Visual Badge for Non-Devs */}
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                          step.type === 'ping'
+                            ? 'bg-blue-100 text-blue-800'
+                            : step.type === 'table_exists'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : step.type === 'record_status'
+                            ? 'bg-indigo-100 text-indigo-800'
+                            : step.type === 'api_and_db'
+                            ? 'bg-teal-100 text-teal-800'
+                            : step.type === 'row_count'
+                            ? 'bg-amber-100 text-amber-800'
+                            : 'bg-purple-100 text-purple-800'
+                        }`}>
+                          {step.type === 'ping'
+                            ? 'DB Health'
+                            : step.type === 'table_exists'
+                            ? 'Table Schema'
+                            : step.type === 'record_status'
+                            ? 'Account / Record'
+                            : step.type === 'api_and_db'
+                            ? 'API -> DB Sync'
+                            : step.type === 'row_count'
+                            ? 'Row Count'
+                            : 'SQL Script'}
+                        </span>
                       </div>
 
+                      {/* Reorder and Delete Controls */}
                       <div className="flex items-center space-x-2">
-                        {step.type === 'row_count' && (
-                          <div className="flex items-center space-x-1">
-                            <span className="text-[10px] text-slate-400 font-semibold uppercase">Min Rows:</span>
-                            <input
-                              type="number"
-                              value={step.expectedRows}
-                              onChange={(e) => handleUpdateDbStep(step.id, 'expectedRows', e.target.value)}
-                              placeholder="0"
-                              className="w-16 px-2 py-1 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:ring-1 focus:ring-amber-500 font-mono text-center font-bold"
-                            />
-                          </div>
-                        )}
-
-                        {step.type === 'custom_sql' && (
-                          <>
-                            <div className="flex items-center space-x-1">
-                              <span className="text-[10px] text-slate-400 font-semibold uppercase">Col:</span>
-                              <input
-                                type="text"
-                                value={step.assertCol || ''}
-                                onChange={(e) => handleUpdateDbStep(step.id, 'assertCol', e.target.value)}
-                                placeholder="col_name"
-                                className="w-20 px-2 py-1 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:ring-1 focus:ring-amber-500 font-mono"
-                              />
-                            </div>
-                            <div className="flex items-center space-x-1">
-                              <span className="text-[10px] text-slate-400 font-semibold uppercase">Val:</span>
-                              <input
-                                type="text"
-                                value={step.assertVal || ''}
-                                onChange={(e) => handleUpdateDbStep(step.id, 'assertVal', e.target.value)}
-                                placeholder="val"
-                                className="w-20 px-2 py-1 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:ring-1 focus:ring-amber-500 font-mono"
-                              />
-                            </div>
-                          </>
-                        )}
-
-                        {/* Reorder DB Step */}
                         <div className="flex flex-col gap-0.5">
                           <button
                             type="button"
@@ -3512,16 +3773,262 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
                       </div>
                     </div>
 
-                    <div className="pt-1 border-t border-slate-100">
+                    {/* Step Type Input Configuration */}
+                    <div className="pt-2">
+                      {step.type === 'ping' && (
+                        <div className="p-2.5 rounded-lg bg-blue-50/60 border border-blue-100 text-xs text-blue-900 flex items-center justify-between">
+                          <span>Connection Health Check: Verifies MariaDB / PostgreSQL connectivity & version response.</span>
+                          <span className="font-mono text-[11px] text-blue-700 bg-white px-2 py-0.5 rounded border border-blue-200">
+                            SELECT 1 AS ping
+                          </span>
+                        </div>
+                      )}
+
+                      {step.type === 'table_exists' && (
+                        <div className="space-y-1">
+                          <label className="block text-[10px] text-slate-600 font-semibold">
+                            Target Table Name <span className="text-slate-400">(e.g. bccs3_vsa_la.users, staff, sale_trans)</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={step.targetTable || ''}
+                            onChange={(e) => handleUpdateDbStep(step.id, 'targetTable', e.target.value)}
+                            placeholder="bccs3_vsa_la.users"
+                            className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:ring-1 focus:ring-amber-500 font-mono"
+                          />
+                        </div>
+                      )}
+
+                      {step.type === 'record_status' && (
+                        <div className="space-y-2">
+                          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                            <div>
+                              <label className="block text-[10px] text-slate-600 font-semibold mb-0.5">
+                                Target Table
+                              </label>
+                              <input
+                                type="text"
+                                value={step.targetTable || ''}
+                                onChange={(e) => handleUpdateDbStep(step.id, 'targetTable', e.target.value)}
+                                placeholder="bccs3_vsa_la.users"
+                                className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono text-slate-900"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] text-slate-600 font-semibold mb-0.5">
+                                Filter Column (WHERE)
+                              </label>
+                              <input
+                                type="text"
+                                value={step.filterCol || ''}
+                                onChange={(e) => handleUpdateDbStep(step.id, 'filterCol', e.target.value)}
+                                placeholder="USER_NAME"
+                                className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono text-slate-900"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] text-slate-600 font-semibold mb-0.5">
+                                Filter Value (=)
+                              </label>
+                              <input
+                                type="text"
+                                value={step.filterVal || ''}
+                                onChange={(e) => handleUpdateDbStep(step.id, 'filterVal', e.target.value)}
+                                placeholder="bccs3_full"
+                                className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono text-slate-900"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] text-slate-600 font-semibold mb-0.5">
+                                Assert Column = Expected Value
+                              </label>
+                              <div className="flex items-center space-x-1">
+                                <input
+                                  type="text"
+                                  value={step.assertCol || ''}
+                                  onChange={(e) => handleUpdateDbStep(step.id, 'assertCol', e.target.value)}
+                                  placeholder="STATUS"
+                                  className="w-1/2 px-2 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono text-slate-900"
+                                />
+                                <span className="text-slate-400 font-bold">=</span>
+                                <input
+                                  type="text"
+                                  value={step.assertVal || ''}
+                                  onChange={(e) => handleUpdateDbStep(step.id, 'assertVal', e.target.value)}
+                                  placeholder="1"
+                                  className="w-1/2 px-2 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono text-emerald-700 font-bold"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                          <div className="p-2 rounded-lg bg-indigo-50/50 border border-indigo-100 text-[11px] text-indigo-900 flex items-center justify-between">
+                            <span>
+                              Non-Dev Logic: Query <strong>{step.targetTable || 'table'}</strong> WHERE <strong>{step.filterCol || 'col'}</strong> = '{step.filterVal || 'val'}' and assert <strong>{step.assertCol || 'status'}</strong> is '{step.assertVal || '1'}'.
+                            </span>
+                          </div>
+                        </div>
+                      )}
+
+                      {step.type === 'api_and_db' && (
+                        <div className="space-y-2">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <div>
+                              <label className="block text-[10px] text-teal-800 font-bold mb-0.5">
+                                API WebService Code (wsCode)
+                              </label>
+                              <input
+                                type="text"
+                                value={step.wsCode || ''}
+                                onChange={(e) => handleUpdateDbStep(step.id, 'wsCode', e.target.value)}
+                                placeholder="WS_createConnectorCodeWithSaleStaff"
+                                className="w-full px-2.5 py-1.5 text-xs bg-teal-50/50 border border-teal-200 rounded-lg font-mono text-teal-950 font-bold"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] text-slate-600 font-semibold mb-0.5">
+                                Database Table to Verify
+                              </label>
+                              <input
+                                type="text"
+                                value={step.targetTable || ''}
+                                onChange={(e) => handleUpdateDbStep(step.id, 'targetTable', e.target.value)}
+                                placeholder="bccs3_catalog_la.staff"
+                                className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono text-slate-900"
+                              />
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            <div>
+                              <label className="block text-[10px] text-slate-600 font-semibold mb-0.5">
+                                Lookup Column (WHERE)
+                              </label>
+                              <input
+                                type="text"
+                                value={step.filterCol || ''}
+                                onChange={(e) => handleUpdateDbStep(step.id, 'filterCol', e.target.value)}
+                                placeholder="staff_code"
+                                className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono text-slate-900"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] text-slate-600 font-semibold mb-0.5">
+                                Lookup Value (=)
+                              </label>
+                              <input
+                                type="text"
+                                value={step.filterVal || ''}
+                                onChange={(e) => handleUpdateDbStep(step.id, 'filterVal', e.target.value)}
+                                placeholder="550112090"
+                                className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono text-slate-900"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] text-slate-600 font-semibold mb-0.5">
+                                Assert Column & Expected Value
+                              </label>
+                              <div className="flex items-center space-x-1">
+                                <input
+                                  type="text"
+                                  value={step.assertCol || ''}
+                                  onChange={(e) => handleUpdateDbStep(step.id, 'assertCol', e.target.value)}
+                                  placeholder="status"
+                                  className="w-1/2 px-2 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono text-slate-900"
+                                />
+                                <span className="text-slate-400 font-bold">=</span>
+                                <input
+                                  type="text"
+                                  value={step.assertVal || ''}
+                                  onChange={(e) => handleUpdateDbStep(step.id, 'assertVal', e.target.value)}
+                                  placeholder="1"
+                                  className="w-1/2 px-2 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono text-teal-700 font-bold"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                          <div className="p-2 rounded-lg bg-teal-50/60 border border-teal-200 text-[11px] text-teal-950 flex items-center justify-between">
+                            <span>
+                              Non-Dev Logic: Sends API <strong>{step.wsCode || 'WS_createConnectorCodeWithSaleStaff'}</strong> then verifies database table <strong>{step.targetTable || 'staff'}</strong> WHERE <strong>{step.filterCol || 'staff_code'}</strong> = '{step.filterVal || '550112090'}' has status '{step.assertVal || '1'}'.
+                            </span>
+                          </div>
+                        </div>
+                      )}
+
+                      {step.type === 'row_count' && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[10px] text-slate-600 font-semibold mb-0.5">
+                              Target Table
+                            </label>
+                            <input
+                              type="text"
+                              value={step.targetTable || ''}
+                              onChange={(e) => handleUpdateDbStep(step.id, 'targetTable', e.target.value)}
+                              placeholder="bccs3_vsa_la.users"
+                              className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono text-slate-900"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] text-slate-600 font-semibold mb-0.5">
+                              Minimum Expected Row Count
+                            </label>
+                            <input
+                              type="number"
+                              value={step.expectedRows || '1'}
+                              onChange={(e) => handleUpdateDbStep(step.id, 'expectedRows', e.target.value)}
+                              placeholder="1"
+                              className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono text-slate-900 font-bold"
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {step.type === 'custom_sql' && (
+                        <div className="space-y-2">
+                          <div>
+                            <label className="block text-[10px] text-slate-600 font-semibold mb-0.5">
+                              Custom SQL Query
+                            </label>
+                            <input
+                              type="text"
+                              value={step.query || ''}
+                              onChange={(e) => handleUpdateDbStep(step.id, 'query', e.target.value)}
+                              placeholder="SELECT status FROM bccs3_vsa_la.users WHERE USER_NAME = 'bccs3_full'"
+                              className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono text-slate-900"
+                            />
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <span className="text-[10px] text-slate-500 font-semibold">Assert Result (Optional):</span>
+                            <input
+                              type="text"
+                              value={step.assertCol || ''}
+                              onChange={(e) => handleUpdateDbStep(step.id, 'assertCol', e.target.value)}
+                              placeholder="Column Name"
+                              className="w-36 px-2 py-1 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono text-slate-900"
+                            />
+                            <span className="text-slate-400 font-bold">=</span>
+                            <input
+                              type="text"
+                              value={step.assertVal || ''}
+                              onChange={(e) => handleUpdateDbStep(step.id, 'assertVal', e.target.value)}
+                              placeholder="Expected Value"
+                              className="w-36 px-2 py-1 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono text-purple-700 font-bold"
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Step Description / Test Title */}
+                    <div className="pt-2 border-t border-slate-100">
                       <label className="block text-[10px] text-slate-500 font-medium mb-1">
-                        Step Description
+                        Step Title / Playwright Test Case Name <span className="text-slate-400">(Shown in Test Reports & Tab 3 Code)</span>
                       </label>
                       <input
                         type="text"
                         value={step.desc || ''}
                         onChange={(e) => handleUpdateDbStep(step.id, 'desc', e.target.value)}
-                        placeholder="e.g. Verify core table test_suites exists in public schema"
-                        className="w-full px-2.5 py-1 text-xs bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                        placeholder="e.g. Verify account status in bccs3_vsa_la.users"
+                        className="w-full px-2.5 py-1 text-xs bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:ring-1 focus:ring-amber-500 font-medium"
                       />
                     </div>
                   </div>
@@ -3532,25 +4039,25 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
               <div className="p-3.5 rounded-xl bg-gradient-to-r from-amber-50/80 via-orange-50/50 to-slate-50 border border-amber-200/80 space-y-2 text-xs text-slate-700 shadow-2xs">
                 <div className="font-bold text-amber-950 flex items-center space-x-1.5">
                   <Sparkles className="w-4 h-4 text-amber-600 flex-shrink-0" />
-                  <span>How Playwright Database Testing Works:</span>
+                  <span>How Playwright Database Testing & Visual Matching Works:</span>
                 </div>
                 <div className="text-[11px] text-slate-600 leading-relaxed grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <div className="p-2.5 rounded-lg bg-white border border-slate-200/90 shadow-2xs">
-                    <strong className="text-slate-900 block font-semibold">1. Direct Connection</strong>
+                    <strong className="text-slate-900 block font-semibold">1. Visual to Code 1:1 Matching</strong>
                     <span className="text-slate-500">
-                      Connects directly to PostgreSQL via <code>pg.Pool</code> without browser or REST overhead.
+                      Every card in Tab 1 matches a <code>test(...)</code> case in Tab 3. Non-devs can configure tables, filters, and assertions without writing any SQL!
                     </span>
                   </div>
                   <div className="p-2.5 rounded-lg bg-white border border-slate-200/90 shadow-2xs">
-                    <strong className="text-slate-900 block font-semibold">2. Schema & Integrity</strong>
+                    <strong className="text-slate-900 block font-semibold">2. Multi-Engine (MariaDB & PostgreSQL)</strong>
                     <span className="text-slate-500">
-                      Asserts table presence, column nullability, and foreign key constraint violations.
+                      Uses <code>mysql2/promise</code> for MariaDB 10.120.254.144 schemas (<code>bccs3_*</code>) and <code>pg</code> for PostgreSQL automatically.
                     </span>
                   </div>
                   <div className="p-2.5 rounded-lg bg-white border border-slate-200/90 shadow-2xs">
-                    <strong className="text-slate-900 block font-semibold">3. Zero-Pollution ACID</strong>
+                    <strong className="text-slate-900 block font-semibold">3. Full API & DB Sync</strong>
                     <span className="text-slate-500">
-                      Executes transactional tests with <code>BEGIN ... ROLLBACK</code> to keep testing environments clean.
+                      Executes API actions (e.g. <code>WS_createConnectorCodeWithSaleStaff</code>) and immediately queries tables to guarantee data consistency.
                     </span>
                   </div>
                 </div>
