@@ -1321,7 +1321,7 @@ function parseApiCodeToSteps(code) {
     const status = statusMatch ? parseInt(statusMatch[1], 10) : (method === 'POST' ? 201 : 200);
 
     const propMatch = subStr.match(/toHaveProperty\(\s*(['"`])(.*?)\1\s*\)/);
-    const expectedKey = propMatch ? propMatch[2] : 'id';
+    const expectedKey = propMatch ? propMatch[2] : '';
 
     let payload = '';
     if (match[5]) {
@@ -2633,15 +2633,33 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
                         </div>
 
                         {/* Expected Key in JSON Response */}
-                        <div className="flex items-center space-x-1">
-                          <span className="text-[10px] text-slate-400 font-semibold uppercase">Assert Key:</span>
+                        <div className="flex items-center space-x-1.5">
+                          <span className="text-[10px] text-slate-400 font-semibold uppercase" title="Field inside JSON Response body that must exist (leave empty to skip)">Assert Key:</span>
                           <input
                             type="text"
-                            value={step.expectedKey}
+                            value={step.expectedKey || ''}
                             onChange={(e) => handleUpdateApiStep(step.id, 'expectedKey', e.target.value)}
-                            placeholder="e.g. id, title"
-                            className="w-24 px-2 py-1 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono"
+                            placeholder="e.g. token, errorCode"
+                            title="Field in response body to verify (leave empty if only checking status code)"
+                            className="w-28 px-2 py-1 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono"
                           />
+                          <div className="hidden sm:flex items-center space-x-1">
+                            {['token', 'sessionId', 'errorCode', 'result', 'id'].map((k) => (
+                              <button
+                                key={k}
+                                type="button"
+                                onClick={() => handleUpdateApiStep(step.id, 'expectedKey', step.expectedKey === k ? '' : k)}
+                                className={`text-[10px] px-1.5 py-0.5 rounded transition ${
+                                  step.expectedKey === k
+                                    ? 'bg-emerald-600 text-white font-medium shadow-xs'
+                                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900'
+                                }`}
+                                title={`Assert response has '${k}' (click again to clear)`}
+                              >
+                                {k}
+                              </button>
+                            ))}
+                          </div>
                         </div>
 
                         <button

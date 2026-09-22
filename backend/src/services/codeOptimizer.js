@@ -102,7 +102,41 @@ function hardenRecordedCode(rawCode, suiteName = '') {
     `const okConfirmBtn = page.locator('.ant-modal-confirm button, .ant-modal button').filter({ hasText: /Ok|OK|Confirm|Yes/i }).or(page.getByRole('button', { name: 'Ok' })).first();\n  if (await okConfirmBtn.isVisible({ timeout: 10_000 }).catch(() => false)) {\n    await okConfirmBtn.click();\n  }`
   );
 
-  // 14. Replace generic test title with meaningful scenario name
+  // 14. Fix unclosed data object before headers in Playwright request calls
+  code = code.replace(
+    /(data:\s*\{[\s\S]*?)(,\s*\}\s*,\s*headers:\s*\{)/g,
+    (match, p1, p2) => {
+      // If opening braces in p1 exceed closing braces, balance it
+      const openCount = (p1.match(/\{/g) || []).length;
+      const closeCount = (p1.match(/\}/g) || []).length;
+      if (openCount > closeCount) {
+        return `${p1}\n      }${p2.replace(',  }', '}')}`;
+      }
+      return match;
+    }
+  );
+
+  // 15. Auto-heal API assertions: UserLogin returns token/sessionId, not 'id'
+  if (code.includes('UserLogin') || code.includes('login') || (code.includes('username') && code.includes('password'))) {
+    code = code.replace(
+      /expect\(body\)\.toHaveProperty\(['"]id['"]\);?/g,
+      "expect(body).toHaveProperty('token');"
+    );
+  }
+
+  // 16. Auto-heal API assertions: BCCS UserRouting/CoreService returns errorCode, not 'id'
+  if (code.includes('UserRouting') || code.includes('CoreService') || code.includes('wsCode')) {
+    code = code.replace(
+      /expect\(body\)\.toHaveProperty\(['"]id['"]\);?/g,
+      "expect(body).toHaveProperty('errorCode');"
+    );
+    code = code.replace(
+      /expect\(response\.status\(\)\)\.toBe\(201\);?/g,
+      "expect(response.status()).toBe(200);"
+    );
+  }
+
+  // 17. Replace generic test title with meaningful scenario name
   if (suiteName && suiteName.trim() && code.includes("test('test',")) {
     const safeTitle = suiteName.trim().replace(/'/g, "\\'");
     code = code.replace("test('test',", `test('${safeTitle}',`);
