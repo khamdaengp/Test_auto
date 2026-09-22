@@ -540,8 +540,18 @@ export default function TestSuitesTable({
                               </span>
                             )}
                           </div>
-                          <p className="text-slate-500 text-[11px] mt-0.5 line-clamp-1">
-                            {suite.description || 'No description provided'}
+                          <p className="text-slate-500 text-[11px] mt-0.5 line-clamp-1 leading-snug" title={suite.description || 'Click Edit Suite to customize description'}>
+                            {suite.description || (
+                              <span className="italic text-slate-400">
+                                {suite.type === 'database'
+                                  ? 'Database schema & record integrity verification'
+                                  : suite.type === 'api'
+                                  ? 'API endpoint request & response validation'
+                                  : suite.type === 'mobile'
+                                  ? 'Mobile emulation user flow verification'
+                                  : 'Automated end-to-end user scenario testing'}
+                              </span>
+                            )}
                           </p>
                           <div className="flex flex-wrap items-center gap-1.5 mt-1">
                             {suite.scheduleCron && (

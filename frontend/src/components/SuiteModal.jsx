@@ -2518,13 +2518,25 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
       newCode = STARTER_TEMPLATES[newType](defaultUrl);
     }
 
-    setFormData((prev) => ({
-      ...prev,
-      type: newType,
-      project: defaultProject,
-      targetUrl: defaultUrl,
-      code: newCode,
-    }));
+    setFormData((prev) => {
+      let nextDesc = prev.description;
+      const isDefaultDesc = !prev.description || prev.description.startsWith('Automated scenario validating') || prev.description.startsWith('Automated test suite targeting');
+      if (isDefaultDesc) {
+        if (newType === 'database') nextDesc = 'Automated database testing validating MariaDB / PostgreSQL tables, records, and data consistency.';
+        else if (newType === 'api') nextDesc = 'Automated API endpoint validation checking status codes and response schemas.';
+        else if (newType === 'mobile') nextDesc = 'Mobile emulation responsive layout and user interaction verification.';
+        else nextDesc = 'Automated desktop web E2E verification validating authentication and UI flows.';
+      }
+
+      return {
+        ...prev,
+        type: newType,
+        project: defaultProject,
+        targetUrl: defaultUrl,
+        description: nextDesc,
+        code: newCode,
+      };
+    });
   };
 
   const handleLoadTemplate = () => {
@@ -2988,7 +3000,7 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
                 required
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder={formData.type === 'api' ? 'e.g. User REST API Suite' : 'e.g. Login Verification Suite'}
+                placeholder={formData.type === 'api' ? 'e.g. User REST API Suite' : formData.type === 'database' ? 'e.g. MariaDB Account Status Suite' : 'e.g. Login Verification Suite'}
                 className="w-full px-3.5 py-2 bg-white border border-slate-300 rounded-lg text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 shadow-sm"
               />
             </div>
@@ -3065,6 +3077,43 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
                     : 'http://localhost:5175/login'
                 }
                 className="w-full px-3.5 py-2 bg-white border border-slate-300 rounded-lg text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 shadow-sm font-mono"
+              />
+            </div>
+          </div>
+
+          {/* Suite Description & Tags */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center justify-between">
+                <span>Suite Description</span>
+                <span className="text-[10px] text-slate-400 font-normal">Explains purpose and scope of this suite for team visibility</span>
+              </label>
+              <input
+                type="text"
+                value={formData.description || ''}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                placeholder={
+                  formData.type === 'database'
+                    ? 'e.g. MariaDB table schema & user account status verification'
+                    : formData.type === 'api'
+                    ? 'e.g. Validates API endpoints, response payloads, and status codes'
+                    : 'e.g. Automated E2E scenario validating authentication and dashboard navigation'
+                }
+                className="w-full px-3.5 py-2 bg-white border border-slate-300 rounded-lg text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 shadow-sm"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center justify-between">
+                <span>Tags</span>
+                <span className="text-[10px] text-slate-400 font-normal">Comma-separated</span>
+              </label>
+              <input
+                type="text"
+                value={formData.tags || ''}
+                onChange={(e) => setFormData({ ...formData, tags: e.target.value })}
+                placeholder="e.g. smoke, regression, database"
+                className="w-full px-3.5 py-2 bg-white border border-slate-300 rounded-lg text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 shadow-sm"
               />
             </div>
           </div>
