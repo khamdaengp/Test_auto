@@ -19,11 +19,32 @@ import {
   ArrowRight,
   RotateCcw,
   Cpu,
+  Webhook,
+  Copy,
+  Check,
 } from 'lucide-react';
 
 export default function RunDetailModal({ runDetail, onClose }) {
   const [activeTab, setActiveTab] = useState('cases');
   const [selectedImage, setSelectedImage] = useState(null);
+  const [copiedId, setCopiedId] = useState(null);
+
+  const handleCopyText = (text, id) => {
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const handleDownloadJson = (text, filename = 'response.json') => {
+    const blob = new Blob([text], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   if (!runDetail) return null;
 
@@ -205,6 +226,95 @@ export default function RunDetailModal({ runDetail, onClose }) {
                           <pre className="text-[11px] text-slate-200 font-mono whitespace-pre-wrap overflow-x-auto leading-relaxed">
                             {item.error_message.replace(/\u001b\[.*?m/g, '')}
                           </pre>
+                        </div>
+                      )}
+
+                      {/* API Request Testing Response Code & Text Resource */}
+                      {(item.response_body || item.response_status) && (
+                        <div className="mt-4 pt-4 border-t border-slate-200 space-y-2.5">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center space-x-2">
+                              <div className="p-1 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                <Webhook className="w-3.5 h-3.5" />
+                              </div>
+                              <span className="text-xs font-bold text-slate-900">
+                                API Response Code & Text Resource
+                              </span>
+                              {item.response_status && (
+                                <span
+                                  className={`px-2 py-0.5 rounded text-[11px] font-mono font-bold border ${
+                                    item.response_status >= 200 && item.response_status < 300
+                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                                      : item.response_status >= 400 && item.response_status < 500
+                                      ? 'bg-amber-50 text-amber-700 border-amber-300'
+                                      : 'bg-rose-50 text-rose-700 border-rose-300'
+                                  }`}
+                                >
+                                  Status: {item.response_status}
+                                </span>
+                              )}
+                              {item.response_body && (
+                                <span className="text-[10px] text-slate-400 font-mono">
+                                  ({new Blob([item.response_body]).size} bytes)
+                                </span>
+                              )}
+                            </div>
+
+                            {item.response_body && (
+                              <div className="flex items-center space-x-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyText(item.response_body, item.id)}
+                                  className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-md text-[11px] font-medium bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 transition cursor-pointer shadow-2xs"
+                                  title="Copy response body text to clipboard"
+                                >
+                                  {copiedId === item.id ? (
+                                    <>
+                                      <Check className="w-3 h-3 text-emerald-600" />
+                                      <span className="text-emerald-700 font-semibold">Copied!</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Copy className="w-3 h-3 text-slate-500" />
+                                      <span>Copy Response</span>
+                                    </>
+                                  )}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDownloadJson(item.response_body, `api-response-${item.id}.json`)}
+                                  className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-md text-[11px] font-medium bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 transition cursor-pointer shadow-2xs"
+                                  title="Download JSON file"
+                                >
+                                  <Download className="w-3 h-3 text-slate-500" />
+                                  <span>JSON</span>
+                                </button>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Response Body Text Block */}
+                          {item.response_body ? (
+                            <div className="relative rounded-xl bg-slate-900 border border-slate-800 overflow-hidden shadow-inner">
+                              <div className="px-3 py-1.5 bg-slate-950/80 border-b border-slate-800 flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                                <span>Response Payload (JSON / Text)</span>
+                                <span>UTF-8</span>
+                              </div>
+                              <pre className="p-3.5 text-xs text-emerald-400 font-mono whitespace-pre-wrap overflow-x-auto max-h-72 select-text leading-relaxed">
+                                {(() => {
+                                  try {
+                                    return JSON.stringify(JSON.parse(item.response_body), null, 2);
+                                  } catch (e) {
+                                    return item.response_body;
+                                  }
+                                })()}
+                              </pre>
+                            </div>
+                          ) : (
+                            <div className="p-3 rounded-lg bg-slate-100 text-slate-500 text-xs italic">
+                              Response status recorded ({item.response_status}), no response body captured.
+                            </div>
+                          )}
                         </div>
                       )}
 

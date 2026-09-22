@@ -59,33 +59,99 @@ function parsePlaywrightReport(reportFilePath) {
               let beforeScreenshotUrl = null;
               let screenshotUrl = null;
               let videoUrl = null;
+              let responseBody = null;
+              let responseStatus = null;
+              let requestPayload = null;
+              let responseHeaders = null;
 
-              // Inspect attachments captured by Playwright (e.g. before/after action or failure)
+              // Inspect attachments captured by Playwright (screenshots, videos, and API response/status)
               if (lastResult.attachments && Array.isArray(lastResult.attachments)) {
                 for (const att of lastResult.attachments) {
+                  const attName = (att.name || '').toLowerCase();
+                  const attContentType = (att.contentType || '').toLowerCase();
+                  let textContent = null;
+
+                  if (att.body) {
+                    try {
+                      // Playwright JSON reporter stores attachment body as base64 string
+                      const decoded = Buffer.from(att.body, 'base64').toString('utf8');
+                      textContent = decoded;
+                    } catch (e) {
+                      textContent = String(att.body);
+                    }
+                  } else if (att.path && fs.existsSync(att.path)) {
+                    try {
+                      textContent = fs.readFileSync(att.path, 'utf8');
+                    } catch (e) {}
+                  }
+
+                  // Check for API response body attachment
+                  if (attName.includes('api-response') || attName.includes('response.json') || (attName === 'response' && attContentType.includes('json'))) {
+                    responseBody = textContent;
+                  } else if (attName.includes('api-status') || attName === 'status') {
+                    if (textContent) {
+                      const num = parseInt(textContent.trim(), 10);
+                      if (!isNaN(num)) responseStatus = num;
+                    }
+                  } else if (attName.includes('api-request') || attName.includes('request-payload')) {
+                    requestPayload = textContent;
+                  } else if (attName.includes('api-headers') || attName.includes('response-headers')) {
+                    try {
+                      responseHeaders = JSON.parse(textContent);
+                    } catch (e) {}
+                  }
+
+                  // Handle media attachments
                   if (att.path && fs.existsSync(att.path)) {
-                    // Calculate relative path inside test-results/artifacts
                     const relativeToArtifacts = path.relative(config.artifactsDir, att.path).replace(/\\/g, '/');
                     const publicUrl = `/artifacts/${relativeToArtifacts}`;
 
-                    const attName = (att.name || '').toLowerCase();
                     const attPath = (att.path || '').toLowerCase();
 
                     if (attName.includes('before') || attPath.includes('before')) {
                       beforeScreenshotUrl = publicUrl;
                     } else if (attName.includes('after') || attPath.includes('after')) {
                       screenshotUrl = publicUrl;
-                    } else if (attName === 'screenshot' || (att.contentType && att.contentType.startsWith('image/'))) {
-                      // Default/failure screenshot
+                    } else if (attName === 'screenshot' || attContentType.startsWith('image/')) {
                       if (!screenshotUrl) {
                         screenshotUrl = publicUrl;
                       } else if (!beforeScreenshotUrl) {
                         beforeScreenshotUrl = publicUrl;
                       }
-                    } else if (attName === 'video' || (att.contentType && att.contentType.startsWith('video/'))) {
+                    } else if (attName === 'video' || attContentType.startsWith('video/')) {
                       videoUrl = publicUrl;
                     }
                   }
+                }
+              }
+
+              // Smart fallback from stdout / console output if attachment wasn't explicitly added
+              if (!responseBody && lastResult.stdout && Array.isArray(lastResult.stdout)) {
+                for (const outItem of lastResult.stdout) {
+                  const outText = typeof outItem === 'string' ? outItem : (outItem.text || '');
+                  const match = outText.match(/Response body:\s*(\{[\s\S]*?\}|\[[\s\S]*?\])/);
+                  if (match) {
+                    responseBody = match[1].trim();
+                    break;
+                  }
+                }
+              }
+
+              // Smart fallback from Error trace (e.g. Received value: { "errorCode": ... })
+              if (!responseBody && errorMessage) {
+                const receivedMatch = errorMessage.match(/Received value:\s*(\{[\s\S]*?\}|\[[\s\S]*?\])/);
+                if (receivedMatch) {
+                  responseBody = receivedMatch[1].trim();
+                }
+              }
+
+              // Extract status code from test title if not captured (e.g. "POST /api - should return 200")
+              if (!responseStatus) {
+                const statusMatch = specTitle.match(/should return (\d{3})/i);
+                if (statusMatch) {
+                  responseStatus = parseInt(statusMatch[1], 10);
+                } else if (status === 'passed') {
+                  responseStatus = 200;
                 }
               }
 
@@ -103,6 +169,10 @@ function parsePlaywrightReport(reportFilePath) {
                 screenshot_url: screenshotUrl,
                 before_screenshot_url: beforeScreenshotUrl,
                 video_url: videoUrl,
+                response_status: responseStatus,
+                response_body: responseBody,
+                response_headers: responseHeaders,
+                request_payload: requestPayload,
                 retry_count: retryCount,
                 is_flaky: isFlaky,
               });

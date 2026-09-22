@@ -45,6 +45,14 @@ async function initDb() {
         ALTER TABLE test_runs ADD COLUMN IF NOT EXISTS is_flaky BOOLEAN DEFAULT false;
       `);
 
+      // Safe column migrations for test_results (API testing response capture)
+      await client.query(`
+        ALTER TABLE test_results ADD COLUMN IF NOT EXISTS response_status INTEGER;
+        ALTER TABLE test_results ADD COLUMN IF NOT EXISTS response_body TEXT;
+        ALTER TABLE test_results ADD COLUMN IF NOT EXISTS response_headers JSONB;
+        ALTER TABLE test_results ADD COLUMN IF NOT EXISTS request_payload TEXT;
+      `);
+
       // Check if test_suites table needs seeding
       const countRes = await client.query('SELECT COUNT(*) as count FROM test_suites');
       if (parseInt(countRes.rows[0].count, 10) === 0) {

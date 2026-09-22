@@ -471,12 +471,14 @@ function generateApiCodeFromSteps(steps, baseUrl = 'https://jsonplaceholder.typi
       requestSnippet = `    const response = await request.get(\`\${BASE_URL}${stepPath}\`);`;
     }
 
-    let assertionSnippet = `    expect(response.status()).toBe(${status});`;
+    let recordSnippet = `    const responseStatus = response.status();\n    const responseBodyText = await response.text();\n    if (testInfo) {\n      await testInfo.attach('api-response.json', { body: responseBodyText, contentType: 'application/json' });\n      await testInfo.attach('api-status', { body: String(responseStatus), contentType: 'text/plain' });\n    }\n    console.log('Response body:', responseBodyText);`;
+
+    let assertionSnippet = `    expect(responseStatus).toBe(${status});`;
     if (step.expectedKey && step.expectedKey.trim()) {
-      assertionSnippet += `\n    const body = await response.json();\n    expect(body).toHaveProperty('${step.expectedKey.trim()}');`;
+      assertionSnippet += `\n    let body = {};\n    try { body = JSON.parse(responseBodyText); } catch (e) {}\n    expect(body).toHaveProperty('${step.expectedKey.trim()}');`;
     }
 
-    testCases += `  test('${testTitle}', async ({ request }) => {\n${requestSnippet}\n${assertionSnippet}\n  });\n\n`;
+    testCases += `  test('${testTitle}', async ({ request }, testInfo) => {\n${requestSnippet}\n${recordSnippet}\n${assertionSnippet}\n  });\n\n`;
   });
 
   return `import { test, expect } from '@playwright/test';

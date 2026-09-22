@@ -65,6 +65,10 @@ CREATE TABLE IF NOT EXISTS test_results (
     screenshot_url TEXT,
     before_screenshot_url TEXT,
     video_url TEXT,
+    response_status INTEGER,
+    response_body TEXT,
+    response_headers JSONB,
+    request_payload TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 

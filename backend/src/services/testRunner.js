@@ -559,8 +559,8 @@ async function runTest(suiteId, options = {}, io = null) {
         const resultId = uuidv4();
         await db.query(
           `INSERT INTO test_results 
-           (id, run_id, title, project, file, status, duration_ms, error_message, error_stack, screenshot_url, video_url, before_screenshot_url)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+           (id, run_id, title, project, file, status, duration_ms, error_message, error_stack, screenshot_url, video_url, before_screenshot_url, response_status, response_body, response_headers, request_payload)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
           [
             resultId,
             runId,
@@ -574,6 +574,10 @@ async function runTest(suiteId, options = {}, io = null) {
             t.screenshot_url,
             t.video_url,
             t.before_screenshot_url,
+            t.response_status || null,
+            t.response_body || null,
+            t.response_headers ? JSON.stringify(t.response_headers) : null,
+            t.request_payload || null,
           ]
         );
       }
