@@ -634,21 +634,21 @@ export default function ProjectModal({
                             <div className="flex items-center gap-1 bg-rose-50 border border-rose-200 rounded-lg px-2 py-1 animate-in fade-in duration-150">
                               <AlertTriangle className="w-3 h-3 text-rose-500 shrink-0" />
                               <span className="text-[10px] text-rose-700 font-medium whitespace-nowrap">
-                                ລົບ <span className="font-bold">{row.key || 'variable'}</span>?
+                                Delete <span className="font-bold">{row.key || 'variable'}</span>?
                               </span>
                               <button
                                 type="button"
                                 onClick={() => handleRemoveEnvRow(row.id)}
                                 className="ml-1 px-1.5 py-0.5 rounded text-[10px] bg-rose-600 hover:bg-rose-700 text-white font-semibold transition cursor-pointer"
                               >
-                                ລົບ
+                                Delete
                               </button>
                               <button
                                 type="button"
                                 onClick={() => setConfirmDeleteVarId(null)}
                                 className="px-1.5 py-0.5 rounded text-[10px] bg-white hover:bg-slate-100 border border-slate-300 text-slate-600 font-semibold transition cursor-pointer"
                               >
-                                ຍົກເລີກ
+                                Cancel
                               </button>
                             </div>
                           ) : (
