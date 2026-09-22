@@ -40,6 +40,10 @@ router.get('/:id', async (req, res) => {
  */
 router.post('/', async (req, res) => {
   try {
+    if (req.body && req.body.code && req.body.type !== 'api' && req.body.type !== 'database') {
+      const { hardenRecordedCode } = require('../services/codeOptimizer');
+      req.body.code = hardenRecordedCode(req.body.code, req.body.name);
+    }
     const newSuite = await createSuite(req.body);
     res.status(201).json(newSuite);
   } catch (err) {
@@ -52,6 +56,10 @@ router.post('/', async (req, res) => {
  */
 router.put('/:id', async (req, res) => {
   try {
+    if (req.body && req.body.code && req.body.type !== 'api' && req.body.type !== 'database') {
+      const { hardenRecordedCode } = require('../services/codeOptimizer');
+      req.body.code = hardenRecordedCode(req.body.code, req.body.name);
+    }
     const updated = await updateSuite(req.params.id, req.body);
     res.json(updated);
   } catch (err) {
@@ -177,19 +185,9 @@ router.post('/codegen/start', async (req, res) => {
           return;
         }
 
-        // Optimize generated code: ensure timeout and proper test description
-        if (!code.includes('test.setTimeout')) {
-          code = code.replace(
-            /(test\s*\(\s*['"][^'"]*['"]\s*,\s*async\s*\(\s*\{\s*page\s*\}\s*\)\s*=>\s*\{)/,
-            `$1\n    // 1. Extend timeout for remote environments / backend latency\n    test.setTimeout(60_000);\n`
-          );
-        }
-
-        // Replace generic test name if present
-        if (code.includes("test('test',")) {
-          const safeTitle = sess.suiteName.replace(/'/g, "\\'");
-          code = code.replace("test('test',", `test('${safeTitle}',`);
-        }
+        // Automatically optimize and harden the recorded code to prevent execution failures
+        const { hardenRecordedCode } = require('../services/codeOptimizer');
+        code = hardenRecordedCode(code, sess.suiteName);
 
         // Automatically create and register test suite in database
         const newSuite = await createSuite({
