@@ -400,18 +400,18 @@ test.describe('API Scenario: Complete CRUD Lifecycle', () => {
   {
     id: 'api-auth-bearer',
     name: 'Auth Header & Bearer Token Verification',
-    desc: 'Simulates Authorization header with Bearer token, tests success and 404/401 negative check',
+    desc: 'Simulates Authorization header with Bearer token from env, tests success and 404/401 negative check',
     targetUrl: 'https://jsonplaceholder.typicode.com',
     generate: (url) => `import { test, expect } from '@playwright/test';
 
 test.describe('API Security: Authentication & Bearer Token', () => {
-  const BASE_URL = '${url || 'https://jsonplaceholder.typicode.com'}';
-  const MOCK_TOKEN = 'qa-bearer-token-xyz-12345';
+  const BASE_URL = process.env.API_BASE_URL || '${url || 'https://jsonplaceholder.typicode.com'}';
+  const TOKEN = process.env.API_TOKEN || 'qa-bearer-token-xyz-12345';
 
   test('should accept request with valid Authorization header', async ({ request }) => {
     const response = await request.get(\`\${BASE_URL}/posts/1\`, {
       headers: {
-        'Authorization': \`Bearer \${MOCK_TOKEN}\`,
+        'Authorization': \`Bearer \${TOKEN}\`,
         'Accept': 'application/json',
       },
     });
@@ -421,6 +421,74 @@ test.describe('API Security: Authentication & Bearer Token', () => {
   test('negative test: should handle missing resource gracefully', async ({ request }) => {
     const response = await request.get(\`\${BASE_URL}/posts/999999\`);
     expect(response.status()).toBe(404);
+  });
+});
+`,
+  },
+  {
+    id: 'api-auto-login-token',
+    name: 'Auto-Login & Dynamic Token Acquisition (Always Fresh Token)',
+    desc: 'Automatically logs in via UserLogin API before tests, acquires fresh JWT token, and passes it to subsequent requests without manual token resets',
+    targetUrl: 'http://10.120.44.76:8500',
+    generate: (url) => `import { test, expect } from '@playwright/test';
+
+test.describe('API Workflow: Dynamic Auto-Login & Token Chaining', () => {
+  const BASE_URL = process.env.API_BASE_URL || '${url || 'http://10.120.44.76:8500'}';
+  let activeToken = process.env.API_TOKEN || '';
+  let activeSessionId = process.env.API_SESSION_ID || '';
+
+  // 1. Authenticate before tests to retrieve fresh, non-expired token
+  test.beforeAll(async ({ request }) => {
+    try {
+      const loginRes = await request.post(\`\${BASE_URL}/ApiGateway/CoreService/UserLogin\`, {
+        data: {
+          appCode: 'mbccs',
+          isEncrypt: false,
+          prefix: '856',
+          username: process.env.API_USERNAME || 'BCCS3_FULL',
+          password: process.env.API_PASSWORD || '654321a@',
+        },
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (loginRes.ok()) {
+        const body = await loginRes.json();
+        if (body.token) {
+          activeToken = body.token;
+          activeSessionId = body.sessionId || '';
+          console.log('[Auto-Login] Successfully retrieved fresh token!');
+        }
+      }
+    } catch (e) {
+      console.warn('[Auto-Login] Fallback to process.env.API_TOKEN', e);
+    }
+  });
+
+  test('POST with fresh dynamic token', async ({ request }, testInfo) => {
+    const response = await request.post(\`\${BASE_URL}/ApiGateway/CoreService/UserRouting\`, {
+      data: {
+        wsCode: 'WS_searchRptV2',
+        wsRequest: {
+          type: 'R580_GET_BRANCH_BY_ROLE',
+        },
+        username: process.env.API_USERNAME || 'BCCS3_FULL',
+        sessionId: activeSessionId,
+        token: activeToken,
+      },
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const responseStatus = response.status();
+    const responseBodyText = await response.text();
+    if (testInfo) {
+      await testInfo.attach('api-response.json', { body: responseBodyText, contentType: 'application/json' });
+      await testInfo.attach('api-status', { body: String(responseStatus), contentType: 'text/plain' });
+    }
+    console.log('Response body:', responseBodyText);
+    expect(responseStatus).toBe(200);
+    let body = {};
+    try { body = JSON.parse(responseBodyText); } catch (e) {}
+    expect(body).toHaveProperty('errorMessage');
+    expect(String(body['errorMessage'])).toBe('The api access successful');
   });
 });
 `,
@@ -463,7 +531,15 @@ function generateApiCodeFromSteps(steps, baseUrl = 'https://jsonplaceholder.typi
 
     let requestSnippet = '';
     if (['post', 'put', 'patch'].includes(method)) {
-      const dataString = step.payload && step.payload.trim() ? step.payload.trim() : '{\n        title: "Automated QA Test"\n      }';
+      let dataString = step.payload && step.payload.trim() ? step.payload.trim() : '{\n        title: "Automated QA Test"\n      }';
+      // Replace environment token and session variables
+      dataString = dataString
+        .replace(/"\{\{API_TOKEN\}\}"/g, 'process.env.API_TOKEN || ""')
+        .replace(/"\{\{TOKEN\}\}"/g, 'process.env.API_TOKEN || ""')
+        .replace(/"\{\{API_SESSION_ID\}\}"/g, 'process.env.API_SESSION_ID || ""')
+        .replace(/"\{\{SESSION_ID\}\}"/g, 'process.env.API_SESSION_ID || ""')
+        .replace(/"\{\{API_USERNAME\}\}"/g, 'process.env.API_USERNAME || "BCCS3_FULL"')
+        .replace(/"\{\{USERNAME\}\}"/g, 'process.env.API_USERNAME || "BCCS3_FULL"');
       requestSnippet = `    const response = await request.${method}(\`\${BASE_URL}${stepPath}\`, {\n      data: ${dataString},\n      headers: { 'Content-Type': 'application/json' },\n    });`;
     } else if (method === 'delete') {
       requestSnippet = `    const response = await request.delete(\`\${BASE_URL}${stepPath}\`);`;
@@ -519,7 +595,7 @@ function generateApiCodeFromSteps(steps, baseUrl = 'https://jsonplaceholder.typi
   return `import { test, expect } from '@playwright/test';
 
 test.describe('Automated API Request Test Suite', () => {
-  const BASE_URL = '${cleanUrl}';
+  const BASE_URL = process.env.API_BASE_URL || '${cleanUrl}';
 
 ${testCases.trimEnd()}
 });
@@ -1471,13 +1547,20 @@ function parseApiCodeToSteps(code) {
       }
     }
 
-    // Format payload nicely if valid JSON
+    // Format payload nicely if valid JSON and map process.env to friendly tags
     if (payload) {
+      const sanitized = payload
+        .replace(/process\.env\.API_TOKEN(?:\s*\|\|\s*['"][^'"]*['"])?/g, '"{{API_TOKEN}}"')
+        .replace(/process\.env\.TOKEN(?:\s*\|\|\s*['"][^'"]*['"])?/g, '"{{API_TOKEN}}"')
+        .replace(/process\.env\.API_SESSION_ID(?:\s*\|\|\s*['"][^'"]*['"])?/g, '"{{API_SESSION_ID}}"')
+        .replace(/process\.env\.SESSION_ID(?:\s*\|\|\s*['"][^'"]*['"])?/g, '"{{API_SESSION_ID}}"')
+        .replace(/process\.env\.API_USERNAME(?:\s*\|\|\s*['"][^'"]*['"])?/g, '"{{API_USERNAME}}"')
+        .replace(/process\.env\.USERNAME(?:\s*\|\|\s*['"][^'"]*['"])?/g, '"{{API_USERNAME}}"');
       try {
-        const parsedJson = JSON.parse(payload);
+        const parsedJson = JSON.parse(sanitized);
         payload = JSON.stringify(parsedJson, null, 2);
       } catch (e) {
-        // Keep raw formatted text if not strict JSON
+        payload = sanitized;
       }
     }
 
@@ -3085,6 +3168,67 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
                                 {((step.payload || '').split('\n').length)} lines &bull; {(step.payload || '').length} chars
                               </span>
 
+                              {/* Quick Env Variable Insert Buttons */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  let current = step.payload || '';
+                                  if (!current.trim()) {
+                                    current = '{\n  "token": "{{API_TOKEN}}"\n}';
+                                  } else if (current.includes('"token"')) {
+                                    current = current.replace(/"token"\s*:\s*"[^"]*"/, '"token": "{{API_TOKEN}}"');
+                                  } else {
+                                    const lastBrace = current.lastIndexOf('}');
+                                    if (lastBrace !== -1) {
+                                      const before = current.slice(0, lastBrace).trimEnd();
+                                      const needsComma = !before.endsWith('{') && !before.endsWith(',');
+                                      current = `${before}${needsComma ? ',' : ''}\n  "token": "{{API_TOKEN}}"\n}`;
+                                    } else {
+                                      current += '\n"token": "{{API_TOKEN}}"';
+                                    }
+                                  }
+                                  try {
+                                    const p = JSON.parse(current);
+                                    current = JSON.stringify(p, null, 2);
+                                  } catch (e) {}
+                                  handleUpdateApiStep(step.id, 'payload', current);
+                                }}
+                                className="px-2 py-1 rounded-md text-[11px] font-mono font-semibold bg-emerald-950/70 hover:bg-emerald-900 text-emerald-300 border border-emerald-700/80 transition cursor-pointer flex items-center space-x-1"
+                                title="Insert dynamic token variable {{API_TOKEN}} from .env file"
+                              >
+                                <span>+ {'{{API_TOKEN}}'}</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  let current = step.payload || '';
+                                  if (!current.trim()) {
+                                    current = '{\n  "sessionId": "{{API_SESSION_ID}}"\n}';
+                                  } else if (current.includes('"sessionId"')) {
+                                    current = current.replace(/"sessionId"\s*:\s*"[^"]*"/, '"sessionId": "{{API_SESSION_ID}}"');
+                                  } else {
+                                    const lastBrace = current.lastIndexOf('}');
+                                    if (lastBrace !== -1) {
+                                      const before = current.slice(0, lastBrace).trimEnd();
+                                      const needsComma = !before.endsWith('{') && !before.endsWith(',');
+                                      current = `${before}${needsComma ? ',' : ''}\n  "sessionId": "{{API_SESSION_ID}}"\n}`;
+                                    } else {
+                                      current += '\n"sessionId": "{{API_SESSION_ID}}"';
+                                    }
+                                  }
+                                  try {
+                                    const p = JSON.parse(current);
+                                    current = JSON.stringify(p, null, 2);
+                                  } catch (e) {}
+                                  handleUpdateApiStep(step.id, 'payload', current);
+                                }}
+                                className="px-2 py-1 rounded-md text-[11px] font-mono font-semibold bg-slate-800 hover:bg-slate-700 text-teal-300 border border-slate-700 transition cursor-pointer hidden sm:flex items-center space-x-1"
+                                title="Insert dynamic sessionId variable {{API_SESSION_ID}} from .env file"
+                              >
+                                <span>+ {'{{API_SESSION_ID}}'}</span>
+                              </button>
+
                               {/* Format JSON Button */}
                               <button
                                 type="button"
@@ -3124,6 +3268,15 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
                             className="w-full p-3.5 bg-[#0b1120] text-emerald-300 font-mono text-xs focus:outline-none leading-relaxed resize-y min-h-[160px] select-text"
                             spellCheck={false}
                           />
+
+                          {/* Env Variable Footer Helper */}
+                          <div className="bg-slate-950/90 px-3 py-1.5 border-t border-slate-800/80 flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                            <span className="flex items-center space-x-1">
+                              <span className="text-slate-500 font-sans font-semibold">Env Variable:</span>
+                              <span>Use <code className="text-emerald-400 font-bold">{'{{API_TOKEN}}'}</code> to read from root <code className="text-amber-400">.env</code> (auto-replaces on reset)</span>
+                            </span>
+                            <span className="text-slate-500 hidden md:inline">Root file: .env &bull; process.env.API_TOKEN</span>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -3139,7 +3292,7 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
                 </div>
                 <div className="text-[11px] text-slate-600 leading-relaxed grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <div className="p-2.5 rounded-lg bg-white border border-slate-200/90 shadow-2xs">
-                    <strong className="text-slate-900 block font-semibold">1. HTTP Methods</strong>
+                    <strong className="text-slate-900 block font-semibold">1. HTTP Methods & Endpoints</strong>
                     <span className="text-slate-500">
                       Supports GET, POST, PUT, DELETE, and PATCH with custom URL query params and headers.
                     </span>
@@ -3147,13 +3300,13 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
                   <div className="p-2.5 rounded-lg bg-white border border-slate-200/90 shadow-2xs">
                     <strong className="text-slate-900 block font-semibold">2. Status & JSON Assertions</strong>
                     <span className="text-slate-500">
-                      Asserts response HTTP status codes (200, 201, 404) and parses JSON responses to check keys.
+                      Asserts response HTTP status codes and parses JSON responses for errorCode, result, or custom values.
                     </span>
                   </div>
                   <div className="p-2.5 rounded-lg bg-white border border-slate-200/90 shadow-2xs">
-                    <strong className="text-slate-900 block font-semibold">3. Ultra-Fast Execution</strong>
+                    <strong className="text-slate-900 block font-semibold">3. Environment Variables (.env)</strong>
                     <span className="text-slate-500">
-                      Runs headlessly via the Playwright <code>{`{ request }`}</code> fixture without loading browser DOM.
+                      Use <code>{`{{API_TOKEN}}`}</code> or <code>process.env.API_TOKEN</code> loaded from root <code>.env</code>. Token resets require editing only <code>.env</code>!
                     </span>
                   </div>
                 </div>
