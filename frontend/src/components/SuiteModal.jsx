@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   X,
   Code,
@@ -1427,6 +1427,9 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
   const [error, setError] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [codegenStatus, setCodegenStatus] = useState(null);
+  const [recordingSessionId, setRecordingSessionId] = useState(null);
+  const [recordedSuite, setRecordedSuite] = useState(null);
+  const recordingPollRef = useRef(null);
 
   // Visual No-Code Steps for Web UI
   const [visualSteps, setVisualSteps] = useState([
@@ -1574,7 +1577,21 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
     }
     setError(null);
     setCodegenStatus(null);
+    setRecordingSessionId(null);
+    setRecordedSuite(null);
+    if (recordingPollRef.current) {
+      clearInterval(recordingPollRef.current);
+      recordingPollRef.current = null;
+    }
   }, [suite, isOpen, selectedProjectId, projects]);
+
+  useEffect(() => {
+    return () => {
+      if (recordingPollRef.current) {
+        clearInterval(recordingPollRef.current);
+      }
+    };
+  }, []);
 
   if (!isOpen) return null;
 
@@ -1781,7 +1798,94 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
     setActiveTab('code');
   };
 
-  // Launch Playwright CodeGen
+  // Start 1-Click Auto-Recording & Auto-Save
+  const handleStartAutoRecording = async () => {
+    setCodegenStatus('launching');
+    setError(null);
+    setRecordedSuite(null);
+    try {
+      const res = await fetch('/api/suites/codegen/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: formData.name || 'Auto-Recorded Scenario',
+          targetUrl: formData.targetUrl || 'http://localhost:5175/login',
+          projectId: formData.projectId || null,
+          type: formData.type || 'e2e',
+          device: formData.project === 'mobile-chrome' ? 'Pixel 7' : '',
+          description: formData.description || '',
+          tags: formData.tags ? formData.tags.split(',').map((t) => t.trim()) : ['auto-recorded'],
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to start auto-recording');
+      }
+
+      const sid = data.sessionId;
+      setRecordingSessionId(sid);
+      setCodegenStatus('recording');
+
+      // Poll status every 1200ms
+      if (recordingPollRef.current) clearInterval(recordingPollRef.current);
+      recordingPollRef.current = setInterval(async () => {
+        try {
+          const pollRes = await fetch(`/api/suites/codegen/status/${sid}`);
+          if (!pollRes.ok) return;
+          const pollData = await pollRes.json();
+
+          if (pollData.status === 'completed') {
+            clearInterval(recordingPollRef.current);
+            recordingPollRef.current = null;
+            setCodegenStatus('completed');
+            setRecordedSuite(pollData.suite);
+            if (pollData.suite) {
+              setFormData((prev) => ({
+                ...prev,
+                name: pollData.suite.name || prev.name,
+                code: pollData.suite.code || prev.code,
+              }));
+              if (onSave) {
+                onSave(pollData.suite);
+              }
+            }
+          } else if (pollData.status === 'empty') {
+            clearInterval(recordingPollRef.current);
+            recordingPollRef.current = null;
+            setCodegenStatus('empty');
+            setError('Browser was closed without performing any interactions.');
+          } else if (pollData.status === 'error') {
+            clearInterval(recordingPollRef.current);
+            recordingPollRef.current = null;
+            setCodegenStatus('error');
+            setError(pollData.error || 'Recording encountered an error.');
+          }
+        } catch (pollErr) {
+          console.error('[CodeGen] Polling error:', pollErr);
+        }
+      }, 1200);
+    } catch (err) {
+      setCodegenStatus('error');
+      setError(err.message || 'Failed to connect to backend server');
+    }
+  };
+
+  // Stop or Cancel Auto-Recording
+  const handleStopAutoRecording = async () => {
+    if (recordingPollRef.current) {
+      clearInterval(recordingPollRef.current);
+      recordingPollRef.current = null;
+    }
+    if (recordingSessionId) {
+      try {
+        await fetch(`/api/suites/codegen/stop/${recordingSessionId}`, { method: 'POST' });
+      } catch (e) {}
+    }
+    setCodegenStatus(null);
+    setRecordingSessionId(null);
+  };
+
+  // Launch Playwright CodeGen (Manual Inspector Mode)
   const handleLaunchCodegen = async () => {
     setCodegenStatus('launching');
     try {
@@ -1792,7 +1896,7 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
       });
       const data = await res.json();
       if (res.ok) {
-        setCodegenStatus('success');
+        setCodegenStatus('manual_success');
       } else {
         setCodegenStatus('error');
         setError(data.error || 'Failed to launch Playwright CodeGen');
@@ -2169,6 +2273,63 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
                 <span>Explore 1-Click DB Presets</span>
               </button>
             </div>
+          ) : codegenStatus === 'recording' ? (
+            <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs shadow-2xs space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <span className="relative flex h-3 w-3">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500"></span>
+                  </span>
+                  <span className="font-bold text-slate-900 text-xs">
+                    Recording In Progress in External Browser Window
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleStopAutoRecording}
+                  className="px-3 py-1 rounded-lg bg-white border border-rose-300 text-rose-700 hover:bg-rose-50 font-semibold text-xs shadow-2xs transition cursor-pointer"
+                >
+                  Cancel Recording
+                </button>
+              </div>
+              <p className="text-slate-600 text-[11px] leading-relaxed">
+                Click and type in the opened Chromium browser window. Playwright is recording your actions.
+                <strong className="text-slate-900 block mt-1 font-semibold">
+                  When you are finished, simply CLOSE the browser window (X). The test suite will be automatically created and saved to the database!
+                </strong>
+              </p>
+            </div>
+          ) : codegenStatus === 'completed' ? (
+            <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs shadow-2xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="flex items-center space-x-2.5">
+                <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+                <div>
+                  <div className="font-bold text-emerald-950 text-xs">
+                    Suite Automatically Created & Saved to Database!
+                  </div>
+                  <div className="text-emerald-700 text-[11px] mt-0.5">
+                    Suite "{recordedSuite?.name || formData.name}" is saved and ready to run anytime.
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center space-x-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('code')}
+                  className="px-3 py-1.5 rounded-lg bg-white border border-emerald-300 text-emerald-800 hover:bg-emerald-100 font-semibold text-xs shadow-2xs transition cursor-pointer"
+                >
+                  View Code
+                </button>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition cursor-pointer"
+                >
+                  Done
+                </button>
+              </div>
+            </div>
           ) : (
             <div className="p-4 rounded-xl bg-gradient-to-r from-indigo-50 via-blue-50 to-indigo-50 border border-indigo-200/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-2xs">
               <div className="flex items-center space-x-3">
@@ -2179,37 +2340,48 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
                   <h4 className="text-xs font-bold text-indigo-950 flex items-center space-x-1.5">
                     <span>Record Browser Actions (Playwright CodeGen)</span>
                     <span className="text-[10px] px-2 py-0.2 rounded bg-indigo-200/70 text-indigo-900 font-semibold">
-                      Auto-Recorder
+                      1-Click Auto Save
                     </span>
                   </h4>
                   <p className="text-[11px] text-indigo-700 mt-0.5">
-                    Click below to open a browser where you can click & type. Playwright records every action for you!
+                    Click below to open browser. When you close the browser, your test suite is automatically created and saved!
                   </p>
                 </div>
               </div>
 
-              <button
-                type="button"
-                onClick={handleLaunchCodegen}
-                disabled={codegenStatus === 'launching'}
-                className="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-xs font-semibold flex items-center space-x-1.5 shadow-xs transition flex-shrink-0 cursor-pointer disabled:cursor-not-allowed"
-              >
-                {codegenStatus === 'launching' ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>Launching Browser...</span>
-                  </>
-                ) : (
-                  <>
-                    <Video className="w-3.5 h-3.5" />
-                    <span>Launch Recorder</span>
-                  </>
-                )}
-              </button>
+              <div className="flex items-center space-x-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleStartAutoRecording}
+                  disabled={codegenStatus === 'launching'}
+                  className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-xs font-bold flex items-center space-x-1.5 shadow-xs transition flex-shrink-0 cursor-pointer disabled:cursor-not-allowed"
+                >
+                  {codegenStatus === 'launching' ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Launching Browser...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Video className="w-3.5 h-3.5" />
+                      <span>Start Auto-Recording</span>
+                    </>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleLaunchCodegen}
+                  disabled={codegenStatus === 'launching'}
+                  className="px-2.5 py-2 rounded-lg bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 text-xs font-medium transition cursor-pointer"
+                  title="Open manual Playwright Inspector window"
+                >
+                  Manual Inspector
+                </button>
+              </div>
             </div>
           )}
 
-          {codegenStatus === 'success' && (formData.type === 'e2e' || formData.type === 'mobile') && (
+          {codegenStatus === 'manual_success' && (formData.type === 'e2e' || formData.type === 'mobile') && (
             <div className="p-3.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-start space-x-2.5">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
               <div className="space-y-1">
