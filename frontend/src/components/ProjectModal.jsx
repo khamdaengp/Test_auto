@@ -8,6 +8,7 @@ import {
   Check,
   Loader2,
   AlertCircle,
+  AlertTriangle,
   CheckCircle2,
   Plus,
   ArrowRight,
@@ -44,6 +45,7 @@ export default function ProjectModal({
   const [error, setError] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [confirmDeleteVarId, setConfirmDeleteVarId] = useState(null);
 
   if (!isOpen) return null;
 
@@ -119,6 +121,7 @@ export default function ProjectModal({
 
   const handleRemoveEnvRow = (id) => {
     setEnvRows((prev) => prev.filter((r) => r.id !== id));
+    setConfirmDeleteVarId(null);
   };
 
   // Quick Preset Handlers
@@ -626,15 +629,38 @@ export default function ProjectModal({
                             </button>
                           </div>
 
-                          {/* Remove button */}
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveEnvRow(row.id)}
-                            className="p-1.5 rounded hover:bg-rose-50 text-slate-400 hover:text-rose-600 transition cursor-pointer"
-                            title="Remove variable"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          {/* Remove button with confirm */}
+                          {confirmDeleteVarId === row.id ? (
+                            <div className="flex items-center gap-1 bg-rose-50 border border-rose-200 rounded-lg px-2 py-1 animate-in fade-in duration-150">
+                              <AlertTriangle className="w-3 h-3 text-rose-500 shrink-0" />
+                              <span className="text-[10px] text-rose-700 font-medium whitespace-nowrap">
+                                ລົບ <span className="font-bold">{row.key || 'variable'}</span>?
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveEnvRow(row.id)}
+                                className="ml-1 px-1.5 py-0.5 rounded text-[10px] bg-rose-600 hover:bg-rose-700 text-white font-semibold transition cursor-pointer"
+                              >
+                                ລົບ
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteVarId(null)}
+                                className="px-1.5 py-0.5 rounded text-[10px] bg-white hover:bg-slate-100 border border-slate-300 text-slate-600 font-semibold transition cursor-pointer"
+                              >
+                                ຍົກເລີກ
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteVarId(row.id)}
+                              className="p-1.5 rounded hover:bg-rose-50 text-slate-400 hover:text-rose-600 transition cursor-pointer"
+                              title="Remove variable"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       ))}
                     </div>
