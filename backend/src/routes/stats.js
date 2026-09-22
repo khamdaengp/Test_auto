@@ -8,7 +8,7 @@ const db = require('../db');
 router.get('/', async (req, res) => {
   try {
     const projectId = req.query.projectId;
-    const filterClause = (projectId && projectId !== 'all') ? 'WHERE project_id = $1' : '';
+    const filterClause = (projectId && projectId !== 'all') ? "WHERE (project_id = $1 OR project_id IS NULL OR suite_id IN ('all-active', 'all-tests'))" : '';
     const filterParams = (projectId && projectId !== 'all') ? [projectId] : [];
 
     // Overall counts
@@ -28,7 +28,7 @@ router.get('/', async (req, res) => {
 
     // Trend of the last 15 test runs
     const trendWhere = (projectId && projectId !== 'all')
-      ? "WHERE status IN ('passed', 'failed') AND project_id = $1"
+      ? "WHERE status IN ('passed', 'failed') AND (project_id = $1 OR project_id IS NULL OR suite_id IN ('all-active', 'all-tests'))"
       : "WHERE status IN ('passed', 'failed')";
     const trendRes = await db.query(`
       SELECT 
@@ -49,7 +49,7 @@ router.get('/', async (req, res) => {
 
     // Suite breakdown
     const suiteWhere = (projectId && projectId !== 'all')
-      ? 'WHERE project_id = $1'
+      ? "WHERE (project_id = $1 OR project_id IS NULL OR suite_id IN ('all-active', 'all-tests'))"
       : '';
     const suiteRes = await db.query(`
       SELECT 

@@ -329,11 +329,13 @@ async function runTest(suiteId, options = {}, io = null) {
     fs.mkdirSync(resultsDir, { recursive: true });
   }
 
+  const assignedProjectId = options.projectId || suite.projectId || null;
+
   // Insert initial test run record
   await db.query(
     `INSERT INTO test_runs (id, project_id, suite_id, suite_name, type, status, start_time, triggered_by, environment, workers, retries)
      VALUES ($1, $2, $3, $4, $5, 'running', $6, $7, $8, $9, $10)`,
-    [runId, suite.projectId || null, suite.id, suite.name, suite.type, startTime, triggeredBy, environment, workers, retries]
+    [runId, assignedProjectId, suite.id, suite.name, suite.type, startTime, triggeredBy, environment, workers, retries]
   );
 
   // Broadcast test started
@@ -446,13 +448,15 @@ async function runTest(suiteId, options = {}, io = null) {
   return new Promise((resolve) => {
     let resolved = false;
 
-    // Safety timeout: 120 seconds maximum per run to prevent hanging indefinitely
+    // Safety timeout: 600s for batch suites (all-active / all-tests) or 180s for single suites
+    const isBatch = suite.id === 'all-active' || suite.id === 'all-tests' || (options.testFiles && options.testFiles.length > 2);
+    const timeoutMs = isBatch ? 600_000 : 180_000;
     const executionTimeout = setTimeout(async () => {
       if (!resolved && activeProcesses.has(runId)) {
-        await addLog('system', '[Runner] Execution timeout exceeded 120 seconds. Aborting run...');
+        await addLog('system', `[Runner] Execution timeout exceeded ${Math.round(timeoutMs / 1000)} seconds. Aborting run...`);
         stopRun(runId);
       }
-    }, 120_000);
+    }, timeoutMs);
 
     child.on('close', async (code) => {
       clearTimeout(executionTimeout);
@@ -478,7 +482,7 @@ async function runTest(suiteId, options = {}, io = null) {
         overallStatus = 'failed';
       }
 
-      // If test runner didn't produce test cases (e.g. compile error or crash)
+      // If test runner didn't produce test cases (e.g. compile error, timeout, or crash)
       if (totalTests === 0) {
         totalTests = 1;
         if (code === 0) {
@@ -487,6 +491,17 @@ async function runTest(suiteId, options = {}, io = null) {
           failedTests = 1;
           overallStatus = 'failed';
         }
+
+        // Add a fallback test result so users can see the failure details in the UI
+        testCases.push({
+          title: code === 0 ? 'Batch Test Execution' : 'Execution Interrupted / Timed Out',
+          project: suite.project || 'playwright',
+          file: suite.testFile || 'tests/custom',
+          status: overallStatus,
+          duration_ms: durationMs,
+          error_message: code === 0 ? null : `Process exited with code ${code}. Check logs for details.`,
+          error_stack: logBuffer.slice(-10).map((l) => `[${l.stream}] ${l.message}`).join('\n'),
+        });
       }
 
       const hasFlaky = testCases.some((t) => t.is_flaky);

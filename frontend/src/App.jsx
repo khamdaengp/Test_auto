@@ -430,7 +430,8 @@ export default function App() {
         text: `Requesting execution for ${suiteDisplayName}...`,
       });
 
-      await triggerRun(suiteId, { triggeredBy: 'dashboard-ui', ...options });
+      const activeProjId = options.projectId || (selectedProjectId !== 'all' ? selectedProjectId : (suite?.projectId || null));
+      await triggerRun(suiteId, { triggeredBy: 'dashboard-ui', projectId: activeProjId, ...options });
     } catch (err) {
       console.error('Failed to trigger test suite:', err);
       setLiveProgress({
