@@ -69,9 +69,26 @@ router.get('/:id', async (req, res) => {
       return res.status(404).json({ error: 'Test run not found' });
     }
 
-    // Get test case results
+    // Get test case results with mapped suite_name
     const resultsRes = await db.query(
-      'SELECT * FROM test_results WHERE run_id = $1 ORDER BY created_at ASC',
+      `SELECT tr.*,
+              COALESCE(
+                ts.name,
+                (SELECT s.name FROM test_suites s 
+                 WHERE s.test_file = tr.file 
+                    OR s.test_file = 'tests/' || tr.file
+                    OR s.test_file LIKE '%' || tr.file
+                    OR tr.file LIKE '%' || s.test_file
+                 LIMIT 1)
+              ) AS suite_name
+       FROM test_results tr
+       LEFT JOIN test_suites ts ON (
+         ts.test_file = tr.file OR
+         ts.test_file = 'tests/' || tr.file OR
+         ts.test_file = replace(tr.file, '\\', '/')
+       )
+       WHERE tr.run_id = $1 
+       ORDER BY tr.created_at ASC`,
       [runId]
     );
 

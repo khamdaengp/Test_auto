@@ -24,7 +24,7 @@ import {
   Check,
 } from 'lucide-react';
 
-export default function RunDetailModal({ runDetail, onClose }) {
+export default function RunDetailModal({ runDetail, onClose, suites = [] }) {
   const [activeTab, setActiveTab] = useState('cases');
   const [selectedImage, setSelectedImage] = useState(null);
   const [copiedId, setCopiedId] = useState(null);
@@ -171,6 +171,25 @@ export default function RunDetailModal({ runDetail, onClose }) {
                 results.map((item) => {
                   const isPassed = item.status === 'passed';
 
+                  const matchedSuite = (suites || []).find((s) => {
+                    if (!s || !s.testFile || !item.file) return false;
+                    const cleanSuiteFile = s.testFile.replace(/^tests[\\/]/, '').replace(/\\/g, '/');
+                    const cleanItemFile = item.file.replace(/^tests[\\/]/, '').replace(/\\/g, '/');
+                    return (
+                      cleanSuiteFile === cleanItemFile ||
+                      cleanSuiteFile.endsWith(cleanItemFile) ||
+                      cleanItemFile.endsWith(cleanSuiteFile) ||
+                      s.testFile === item.file
+                    );
+                  });
+
+                  const suiteName =
+                    item.suite_name ||
+                    matchedSuite?.name ||
+                    (run.suite_name !== 'All Active Test Suites' && run.suite_name !== 'All Test Suites Combined'
+                      ? run.suite_name
+                      : null);
+
                   return (
                     <div
                       key={item.id}
@@ -189,13 +208,27 @@ export default function RunDetailModal({ runDetail, onClose }) {
                             <XCircle className="w-5 h-5 text-rose-600 flex-shrink-0" />
                           )}
                           <div>
+                            {/* Suite Name Badge & Project Tag */}
+                            <div className="flex items-center space-x-2 flex-wrap gap-y-1 mb-1">
+                              {suiteName ? (
+                                <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200 shadow-2xs">
+                                  <Layers className="w-3 h-3 text-indigo-600" />
+                                  <span>Suite: {suiteName}</span>
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-100 text-slate-600 border border-slate-200">
+                                  <FileCode className="w-3 h-3 text-slate-500" />
+                                  <span>Suite: Custom Spec</span>
+                                </span>
+                              )}
+                              <span className="font-mono text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
+                                {item.project}
+                              </span>
+                            </div>
+
                             <h4 className="text-sm font-bold text-slate-900">{item.title}</h4>
                             <div className="text-xs text-slate-500 flex items-center space-x-2 mt-0.5">
-                              <span className="font-mono text-indigo-600 font-medium">
-                                Project: {item.project}
-                              </span>
-                              <span className="w-1 h-1 rounded-full bg-slate-300" />
-                              <span className="font-mono text-slate-600">{item.file}</span>
+                              <span className="font-mono text-slate-500 text-[11px]">{item.file}</span>
                             </div>
                           </div>
                         </div>

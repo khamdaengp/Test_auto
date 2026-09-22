@@ -1065,6 +1065,7 @@ export default function App() {
         <RunDetailModal
           runDetail={selectedRunDetail}
           onClose={() => setSelectedRunDetail(null)}
+          suites={suites}
         />
       )}
 
