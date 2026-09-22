@@ -4,6 +4,25 @@ const db = require('../db');
 const { deleteSuite } = require('../services/testRunner');
 
 /**
+ * GET /api/projects/env/defaults - Read default global .env variables for easy 1-click import into projects
+ */
+router.get('/env/defaults', (req, res) => {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const dotenv = require('dotenv');
+    const rootEnvPath = path.resolve(__dirname, '../../../.env');
+    if (fs.existsSync(rootEnvPath)) {
+      const parsed = dotenv.parse(fs.readFileSync(rootEnvPath, 'utf8'));
+      return res.json(parsed);
+    }
+    res.json({});
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
  * GET /api/projects - List all registered software projects
  */
 router.get('/', async (req, res) => {
@@ -22,6 +41,7 @@ router.get('/', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 
 /**
  * POST /api/projects - Create a new software project

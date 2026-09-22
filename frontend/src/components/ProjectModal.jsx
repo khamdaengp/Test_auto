@@ -18,7 +18,9 @@ import {
   Sliders,
   Sparkles,
   Copy,
+  Download,
 } from 'lucide-react';
+import { fetchDefaultEnv } from '../services/api';
 
 export default function ProjectModal({
   isOpen,
@@ -120,8 +122,10 @@ export default function ProjectModal({
   const handleApplyApiPresets = () => {
     const defaultBaseUrl = formData.baseUrl || 'http://10.120.44.76:8500';
     const presets = [
+      { key: 'BASE_URL', value: defaultBaseUrl },
       { key: 'API_BASE_URL', value: defaultBaseUrl },
-      { key: 'API_TOKEN', value: '' },
+      { key: 'API_TOKEN', value: 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJtYmNjc3xCQ0NTM19GVUxMIiwidXNlcm5hbWUiOiJtYmNjc3xCQ0NTM19GVUxMIiwiaXNzIjoibWJjY3MtY2xpZW50IiwiaWF0IjoxNzkwMDc1Njc4LCJleHAiOjE3OTAxNjIwNzh9.LoXhiBoQIZ_JIPjxUbdwb1qrpRRb6Ce3-Jhs6MvMSKw' },
+      { key: 'API_SESSION_ID', value: 'de4e7258-5c79-4ac3-8eba-54158a430174' },
       { key: 'API_USERNAME', value: 'BCCS3_FULL' },
       { key: 'API_PASSWORD', value: '654321a@' },
     ];
@@ -138,6 +142,31 @@ export default function ProjectModal({
         }));
       return [...prev, ...newItems];
     });
+  };
+
+  const [isImporting, setIsImporting] = useState(false);
+
+  const handleImportFromEnv = async () => {
+    try {
+      setIsImporting(true);
+      const defaults = await fetchDefaultEnv();
+      const defaultRows = Object.entries(defaults).map(([k, v], idx) => ({
+        id: `env-${idx}-${Date.now()}-${k}`,
+        key: k,
+        value: typeof v === 'object' ? JSON.stringify(v) : String(v ?? ''),
+        showValue: false,
+      }));
+
+      setEnvRows((prev) => {
+        const existingKeys = new Set(prev.map((r) => r.key.trim()));
+        const newItems = defaultRows.filter((r) => !existingKeys.has(r.key.trim()));
+        return [...prev, ...newItems];
+      });
+    } catch (err) {
+      setError('Failed to import default .env: ' + err.message);
+    } finally {
+      setIsImporting(false);
+    }
   };
 
   const handleApplyMariaDbPresets = () => {
@@ -502,6 +531,21 @@ export default function ProjectModal({
                       >
                         <Database className="w-3 h-3 text-emerald-600" />
                         <span>+ Add MariaDB Presets</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleImportFromEnv}
+                        disabled={isImporting}
+                        className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-md bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-[11px] font-semibold transition cursor-pointer shadow-2xs"
+                        title="Import all variables directly from root .env file"
+                      >
+                        {isImporting ? (
+                          <Loader2 className="w-3 h-3 animate-spin text-amber-700" />
+                        ) : (
+                          <Download className="w-3 h-3 text-amber-700" />
+                        )}
+                        <span>Import from .env</span>
                       </button>
                     </div>
 

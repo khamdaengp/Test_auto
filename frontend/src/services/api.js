@@ -175,3 +175,10 @@ export async function deleteProject(id) {
   }
   return res.json();
 }
+
+export async function fetchDefaultEnv() {
+  const res = await fetch(`${API_BASE}/api/projects/env/defaults`, NO_CACHE_OPTS);
+  if (!res.ok) throw new Error(`Failed to fetch default env: ${res.statusText}`);
+  return res.json();
+}
+
