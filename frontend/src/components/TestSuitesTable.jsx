@@ -437,16 +437,16 @@ export default function TestSuitesTable({
       </div>
 
       {/* Table */}
-      <div className="overflow-x-auto">
-        <table className="w-full text-left text-xs">
+      <div className="overflow-x-auto scrollbar-thin">
+        <table className="w-full text-left text-xs min-w-[940px]">
           <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider text-[11px] border-b border-slate-200">
             <tr>
               <th className="py-3 px-4 font-semibold text-center w-14 text-slate-500">NO</th>
-              <th className="py-3 px-5 font-semibold">Test Suite</th>
+              <th className="py-3 px-5 font-semibold min-w-[200px]">Test Suite</th>
               <th className="py-3 px-4 font-semibold">Category</th>
               <th className="py-3 px-4 font-semibold hidden md:table-cell">Target & Device</th>
-              <th className="py-3 px-4 font-semibold hidden sm:table-cell">Tags</th>
-              <th className="py-3 px-5 font-semibold text-right">Actions</th>
+              <th className="py-3 px-4 font-semibold hidden xl:table-cell">Tags</th>
+              <th className="py-3 px-5 font-semibold text-right sticky right-0 bg-slate-50 z-20 min-w-[210px] shadow-[-10px_0_12px_-6px_rgba(0,0,0,0.06)]">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -510,10 +510,10 @@ export default function TestSuitesTable({
 
                 return (
                   <tr key={suite.id} className="hover:bg-slate-50/80 transition group">
-                    <td className="py-3.5 px-4 text-center font-medium text-slate-400 text-xs w-14">
+                    <td className="py-3.5 px-3 text-center font-medium text-slate-400 text-xs w-12">
                       {idx + 1}
                     </td>
-                    <td className="py-3.5 px-5">
+                    <td className="py-3.5 px-4 min-w-[220px]">
                       <div className="flex items-center space-x-3">
                         <div className="p-2 rounded-lg bg-slate-100 border border-slate-200/80 flex-shrink-0">
                           {getTypeIcon(suite.type)}
@@ -581,12 +581,12 @@ export default function TestSuitesTable({
                       </div>
                     </td>
 
-                    <td className="py-3.5 px-4 whitespace-nowrap">
+                    <td className="py-3.5 px-3 whitespace-nowrap w-36">
                       {getTypeBadge(suite.type)}
                     </td>
 
-                    <td className="py-3.5 px-4 text-slate-600 hidden md:table-cell">
-                      <div className="font-mono text-[11px] text-slate-800 truncate max-w-[200px]">
+                    <td className="py-3.5 px-3 text-slate-600 hidden md:table-cell w-52 min-w-[180px]">
+                      <div className="font-mono text-[11px] text-slate-800 truncate max-w-[190px]" title={suite.targetUrl || suite.testFile}>
                         {suite.targetUrl || suite.testFile || 'Default Target'}
                       </div>
                       <div className="flex items-center space-x-1.5 mt-0.5">
@@ -614,23 +614,23 @@ export default function TestSuitesTable({
                       </div>
                     </td>
 
-                    <td className="py-3.5 px-4 hidden sm:table-cell">
-                      <div className="flex flex-wrap gap-1">
+                    <td className="py-3.5 px-3 hidden xl:table-cell w-44 min-w-[140px]">
+                      <div className="flex flex-wrap gap-1 max-w-[180px]">
                         {suite.tags &&
                           suite.tags.map((tag) => (
                             <span
                               key={tag}
-                              className="inline-flex items-center px-2 py-0.5 rounded bg-slate-100 text-[10px] text-slate-600 border border-slate-200 font-mono"
+                              className="inline-flex items-center px-2 py-0.5 rounded bg-slate-100 text-[10px] text-slate-600 border border-slate-200 font-mono whitespace-nowrap shrink-0"
                             >
-                              <Tag className="w-2.5 h-2.5 mr-1 text-slate-400" />
+                              <Tag className="w-2.5 h-2.5 mr-1 text-slate-400 shrink-0" />
                               <span>{tag}</span>
                             </span>
                           ))}
                       </div>
                     </td>
 
-                    <td className="py-3.5 px-5 text-right whitespace-nowrap">
-                      <div className="flex items-center justify-end space-x-1.5">
+                    <td className="py-3.5 px-4 text-right whitespace-nowrap sticky right-0 bg-white group-hover:bg-slate-50 transition-colors z-10 w-56 min-w-[215px] shadow-[-10px_0_12px_-6px_rgba(0,0,0,0.06)]">
+                      <div className="flex items-center justify-end space-x-1.5 shrink-0">
                         {/* If in Examples scope: Offer 'Use as Template' */}
                         {scopeFilter === 'examples' ? (
                           <>
@@ -668,7 +668,7 @@ export default function TestSuitesTable({
                           <>
                             <button
                               onClick={() => onEditSuite(suite)}
-                              className="p-1.5 rounded-lg bg-white hover:bg-slate-100 border border-slate-200 text-slate-500 hover:text-slate-800 transition shadow-2xs cursor-pointer"
+                              className="p-1.5 rounded-lg bg-white hover:bg-slate-100 border border-slate-200 text-slate-500 hover:text-slate-800 transition shadow-2xs cursor-pointer shrink-0"
                               title="Edit Suite and Code"
                             >
                               <Pencil className="w-3.5 h-3.5" />
@@ -676,7 +676,7 @@ export default function TestSuitesTable({
 
                             <button
                               onClick={() => onDuplicateSuite ? onDuplicateSuite(suite) : (onUseTemplate ? onUseTemplate(suite) : onEditSuite(suite))}
-                              className="p-1.5 rounded-lg bg-white hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 text-slate-500 hover:text-indigo-600 transition shadow-2xs cursor-pointer"
+                              className="p-1.5 rounded-lg bg-white hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 text-slate-500 hover:text-indigo-600 transition shadow-2xs cursor-pointer shrink-0"
                               title="Duplicate Suite"
                             >
                               <Copy className="w-3.5 h-3.5" />
@@ -685,18 +685,18 @@ export default function TestSuitesTable({
                             {!suite.isSystem && (
                               <button
                                 onClick={() => onDeleteSuite(suite)}
-                                className="p-1.5 rounded-lg bg-white hover:bg-rose-50 border border-slate-200 hover:border-rose-200 text-slate-500 hover:text-rose-600 transition shadow-2xs cursor-pointer"
+                                className="p-1.5 rounded-lg bg-white hover:bg-rose-50 border border-slate-200 hover:border-rose-200 text-slate-500 hover:text-rose-600 transition shadow-2xs cursor-pointer shrink-0"
                                 title="Delete Suite"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
                             )}
 
-                            <div className="inline-flex items-stretch h-8 rounded-lg shadow-2xs overflow-hidden border border-indigo-600/90 bg-indigo-600">
+                            <div className="inline-flex items-stretch h-8 rounded-lg shadow-2xs overflow-hidden border border-indigo-600/90 bg-indigo-600 shrink-0">
                               {isCurrentRunning ? (
                                 <button
                                   onClick={() => onStopRun && onStopRun()}
-                                  className="h-full px-3 flex items-center space-x-1.5 text-xs font-semibold transition cursor-pointer bg-rose-600 hover:bg-rose-700 text-white animate-pulse"
+                                  className="h-full px-3 flex items-center space-x-1.5 text-xs font-semibold transition cursor-pointer bg-rose-600 hover:bg-rose-700 text-white animate-pulse shrink-0"
                                   title="Stop this test run"
                                 >
                                   <Square className="w-3 h-3 fill-current" />
@@ -707,14 +707,14 @@ export default function TestSuitesTable({
                                   <button
                                     onClick={() => onRunSuite(suite.id)}
                                     disabled={isRunning}
-                                    className="h-full px-3 flex items-center space-x-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 transition cursor-pointer disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
+                                    className="h-full px-3 flex items-center space-x-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 transition cursor-pointer disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed whitespace-nowrap shrink-0"
                                     title="Run suite immediately with default configuration"
                                   >
                                     <Play className="w-3 h-3 fill-current" />
                                     <span>Run</span>
                                   </button>
 
-                                  <div className="w-[1px] h-4 self-center bg-indigo-400/50" />
+                                  <div className="w-[1px] h-4 self-center bg-indigo-400/50 shrink-0" />
 
                                   <button
                                     type="button"
@@ -723,7 +723,7 @@ export default function TestSuitesTable({
                                       handleOpenOptions(suite);
                                     }}
                                     disabled={isRunning}
-                                    className="h-full px-2 flex items-center justify-center text-indigo-100 hover:text-white bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 transition cursor-pointer disabled:opacity-50"
+                                    className="h-full px-2 flex items-center justify-center text-indigo-100 hover:text-white bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 transition cursor-pointer disabled:opacity-50 shrink-0"
                                     title="Run with options (Profile, Workers, Retries)"
                                   >
                                     <Sliders className="w-3.5 h-3.5" />
