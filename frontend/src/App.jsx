@@ -758,7 +758,7 @@ export default function App() {
         />
 
         {/* Main Content Area */}
-        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+        <main className="flex-1 max-w-[1480px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
           {/* ========================================================
               DASHBOARD OVERVIEW (activeView === 'all')
               Executive Command Center: KPIs + Triage + Quick Hub + Recent 5
@@ -1037,7 +1037,7 @@ export default function App() {
 
         {/* Footer */}
         <footer className="border-t border-slate-200/80 bg-white py-5 text-xs text-slate-500">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left">
+          <div className="max-w-[1480px] mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left">
             <div className="flex items-center space-x-2 text-slate-600 font-medium">
               <span className="font-semibold text-slate-800">Playwright QA Automation Hub</span>
             </div>

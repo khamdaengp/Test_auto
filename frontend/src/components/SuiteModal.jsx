@@ -1308,35 +1308,165 @@ function parseWebCodeToSteps(code) {
   return steps;
 }
 
-function parseApiCodeToSteps(code) {
-  const steps = [];
-  const reqRegex = /request\.(get|post|put|delete|patch)\(\s*(?:`([^`]+)`|(['"`])(.*?)\3)\s*(?:,\s*\{([\s\S]*?)\}\s*)?\)/gi;
-  let match;
-  let idx = 1;
-  while ((match = reqRegex.exec(code)) !== null) {
-    const method = match[1].toUpperCase();
-    let rawPath = match[2] || match[4] || '/';
-    rawPath = rawPath.replace(/\$\{?[a-zA-Z0-9_]*BASE_URL\}?/gi, '').replace(/^https?:\/\/[^\/]+/, '') || '/';
+// Helper to extract a balanced curly brace block { ... } starting at or after startIndex
+function extractBalancedBraces(str, startIndex = 0) {
+  let depth = 0;
+  let inString = null;
+  let escape = false;
+  let start = -1;
 
-    const subStr = code.slice(match.index, match.index + 500);
-    const statusMatch = subStr.match(/expect\(.*status\(\)\)\.toBe\((\d+)\)/);
-    const status = statusMatch ? parseInt(statusMatch[1], 10) : (method === 'POST' ? 201 : 200);
+  for (let i = startIndex; i < str.length; i++) {
+    const char = str[i];
 
-    const propMatch = subStr.match(/toHaveProperty\(\s*(['"`])(.*?)\1\s*\)/);
-    const expectedKey = propMatch ? propMatch[2] : '';
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (char === '\\') {
+      escape = true;
+      continue;
+    }
 
-    let payload = '';
-    if (match[5]) {
-      const dataMatch = match[5].match(/data:\s*(\{[\s\S]*?\})/);
-      if (dataMatch) {
-        payload = dataMatch[1].trim();
+    if (inString) {
+      if (char === inString) {
+        inString = null;
+      }
+      continue;
+    }
+
+    if (char === '"' || char === "'" || char === '`') {
+      inString = char;
+      continue;
+    }
+
+    if (char === '{') {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (char === '}') {
+      depth--;
+      if (depth === 0 && start !== -1) {
+        return { content: str.slice(start, i + 1), start, end: i };
       }
     }
+  }
+  return null;
+}
+
+function parseApiCodeToSteps(code) {
+  if (!code || typeof code !== 'string') return [];
+  const steps = [];
+  const reqPattern = /request\.(get|post|put|delete|patch)\s*\(/gi;
+  let match;
+  let idx = 1;
+
+  while ((match = reqPattern.exec(code)) !== null) {
+    const method = match[1].toUpperCase();
+    const callStartIndex = match.index + match[0].length;
+
+    // Scan for closing paren of request.method(...)
+    let depthParen = 1;
+    let inStr = null;
+    let isEsc = false;
+    let callEndIndex = -1;
+
+    for (let i = callStartIndex; i < code.length; i++) {
+      const ch = code[i];
+      if (isEsc) {
+        isEsc = false;
+        continue;
+      }
+      if (ch === '\\') {
+        isEsc = true;
+        continue;
+      }
+      if (inStr) {
+        if (ch === inStr) inStr = null;
+        continue;
+      }
+      if (ch === '"' || ch === "'" || ch === '`') {
+        inStr = ch;
+        continue;
+      }
+      if (ch === '(') depthParen++;
+      else if (ch === ')') {
+        depthParen--;
+        if (depthParen === 0) {
+          callEndIndex = i;
+          break;
+        }
+      }
+    }
+
+    if (callEndIndex === -1) callEndIndex = code.length;
+    const argsStr = code.slice(callStartIndex, callEndIndex);
+
+    // Extract URL / Path
+    let rawPath = '/';
+    const firstQuoteMatch = argsStr.match(/[`'"]([^`'"]+)[`'"]/);
+    if (firstQuoteMatch) {
+      rawPath = firstQuoteMatch[1]
+        .replace(/\$\{?[a-zA-Z0-9_]*BASE_URL\}?/gi, '')
+        .replace(/^https?:\/\/[^\/]+/, '')
+        .trim();
+      if (!rawPath.startsWith('/')) rawPath = '/' + rawPath;
+    }
+
+    // Extract payload from data: { ... } or data: [...]
+    let payload = '';
+    const dataIdx = argsStr.indexOf('data:');
+    if (dataIdx !== -1) {
+      const afterData = argsStr.slice(dataIdx + 5).trim();
+      if (afterData.startsWith('{')) {
+        const braceObj = extractBalancedBraces(afterData, 0);
+        if (braceObj) {
+          payload = braceObj.content.trim();
+        }
+      } else if (afterData.startsWith('[')) {
+        let bDepth = 0;
+        for (let b = 0; b < afterData.length; b++) {
+          if (afterData[b] === '[') bDepth++;
+          else if (afterData[b] === ']') {
+            bDepth--;
+            if (bDepth === 0) {
+              payload = afterData.slice(0, b + 1).trim();
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    // Format payload nicely if valid JSON
+    if (payload) {
+      try {
+        const parsedJson = JSON.parse(payload);
+        payload = JSON.stringify(parsedJson, null, 2);
+      } catch (e) {
+        // Keep raw formatted text if not strict JSON
+      }
+    }
+
+    // Find assertions following this request up to next test or 2500 chars
+    const afterCall = code.slice(callEndIndex, callEndIndex + 2500);
+    const nextTestIdx = afterCall.search(/\btest\s*\(/);
+    const assertBlock = nextTestIdx !== -1 ? afterCall.slice(0, nextTestIdx) : afterCall;
+
+    // Status matching
+    const statusMatch = assertBlock.match(/expect\s*\(\s*(?:[\w$.]+\.status(?:\(\))?|responseStatus|res\.status|status)\s*\)\s*\.(?:toBe|toEqual)\s*\(\s*(\d+)\s*\)/i)
+      || assertBlock.match(/expect\s*\([^)]*status[^)]*\)\s*\.(?:toBe|toEqual)\s*\(\s*(\d+)\s*\)/i)
+      || assertBlock.match(/\.toBe\s*\(\s*([1-5]\d{2})\s*\)/);
+    const status = statusMatch ? parseInt(statusMatch[1], 10) : (method === 'POST' ? 201 : 200);
+
+    // Expected Key matching
+    const propMatch = assertBlock.match(/toHaveProperty\s*\(\s*(['"`])(.*?)\1\s*\)/)
+      || assertBlock.match(/toContainText\s*\(\s*(['"`])(.*?)\1\s*\)/)
+      || assertBlock.match(/toContain\s*\(\s*(['"`])(.*?)\1\s*\)/);
+    const expectedKey = propMatch ? propMatch[2] : '';
 
     steps.push({
       id: Date.now() + idx,
       method,
-      path: rawPath.startsWith('/') ? rawPath : `/${rawPath}`,
+      path: rawPath || '/',
       expectedStatus: status,
       expectedKey,
       payload,
@@ -1457,27 +1587,31 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
 
   // Synchronize Playwright Code Script from Tab 3 into Visual Steps in Tab 1
   const syncCodeToVisualSteps = (code, type = 'e2e') => {
-    if (!code || typeof code !== 'string') return;
+    if (!code || typeof code !== 'string') return 0;
     try {
       if (type === 'api') {
         const parsed = parseApiCodeToSteps(code);
         if (parsed && parsed.length > 0) {
           setApiSteps(parsed);
+          return parsed.length;
         }
       } else if (type === 'database') {
         const parsed = parseDatabaseCodeToSteps(code);
         if (parsed && parsed.length > 0) {
           setDatabaseSteps(parsed);
+          return parsed.length;
         }
       } else {
         const parsed = parseWebCodeToSteps(code);
         if (parsed && parsed.length > 0) {
           setVisualSteps(parsed);
+          return parsed.length;
         }
       }
     } catch (err) {
       console.warn('Failed to parse Playwright code into visual steps:', err);
     }
+    return 0;
   };
 
   useEffect(() => {
@@ -1554,8 +1688,12 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
         retryCount: suiteRetryCount,
         testDataset: suite.testDataset ? (typeof suite.testDataset === 'string' ? suite.testDataset : JSON.stringify(suite.testDataset, null, 2)) : '',
       });
-      syncCodeToVisualSteps(suiteCode, suite.type || 'e2e');
-      setActiveTab('nocode');
+      const parsedCount = syncCodeToVisualSteps(suiteCode, suite.type || 'e2e');
+      if (parsedCount > 0) {
+        setActiveTab('nocode');
+      } else {
+        setActiveTab('code');
+      }
     } else {
       const initialCode = generateCodeFromSteps(visualSteps, defaultUrl);
       setFormData({
@@ -2001,7 +2139,7 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
     }
 
     let finalCode = formData.code;
-    if (activeTab === 'nocode' || !finalCode || !finalCode.trim()) {
+    if (!finalCode || !finalCode.trim()) {
       if (formData.type === 'api') {
         finalCode = generateApiCodeFromSteps(apiSteps, formData.targetUrl);
       } else if (formData.type === 'database') {
@@ -2129,15 +2267,17 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
           <button
             type="button"
             onClick={() => {
-              let latestCode = formData.code;
-              if (formData.type === 'api') {
-                latestCode = generateApiCodeFromSteps(apiSteps, formData.targetUrl);
-              } else if (formData.type === 'database') {
-                latestCode = generateDatabaseCodeFromSteps(databaseSteps, formData.targetUrl);
-              } else {
-                latestCode = generateCodeFromSteps(visualSteps, formData.targetUrl);
+              if (!formData.code || !formData.code.trim()) {
+                let latestCode = '';
+                if (formData.type === 'api') {
+                  latestCode = generateApiCodeFromSteps(apiSteps, formData.targetUrl);
+                } else if (formData.type === 'database') {
+                  latestCode = generateDatabaseCodeFromSteps(databaseSteps, formData.targetUrl);
+                } else {
+                  latestCode = generateCodeFromSteps(visualSteps, formData.targetUrl);
+                }
+                setFormData((prev) => ({ ...prev, code: latestCode }));
               }
-              setFormData((prev) => ({ ...prev, code: latestCode }));
               setActiveTab('code');
             }}
             className={`py-3 px-4 text-xs font-semibold border-b-2 flex items-center space-x-2 transition cursor-pointer ${
@@ -2430,16 +2570,17 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
                   const pid = e.target.value;
                   const proj = projects.find((p) => p.id === pid);
                   const newUrl = proj?.base_url || formData.targetUrl;
-                  setFormData((prev) => ({
-                    ...prev,
-                    projectId: pid,
-                    targetUrl: newUrl,
-                    code: prev.type === 'api'
-                      ? generateApiCodeFromSteps(apiSteps, newUrl)
-                      : prev.type === 'database'
-                      ? generateDatabaseCodeFromSteps(databaseSteps, newUrl)
-                      : generateCodeFromSteps(visualSteps, newUrl),
-                  }));
+                  setFormData((prev) => {
+                    const next = { ...prev, projectId: pid, targetUrl: newUrl };
+                    if (activeTab === 'nocode') {
+                      next.code = prev.type === 'api'
+                        ? generateApiCodeFromSteps(apiSteps, newUrl)
+                        : prev.type === 'database'
+                        ? generateDatabaseCodeFromSteps(databaseSteps, newUrl)
+                        : generateCodeFromSteps(visualSteps, newUrl);
+                    }
+                    return next;
+                  });
                 }}
                 className="w-full px-3.5 py-2 bg-white border border-slate-300 rounded-lg text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 shadow-sm font-medium"
               >
@@ -2466,15 +2607,17 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
                 value={formData.targetUrl}
                 onChange={(e) => {
                   const val = e.target.value;
-                  setFormData({ ...formData, targetUrl: val });
-                  setFormData((prev) => ({
-                    ...prev,
-                    code: prev.type === 'api'
-                      ? generateApiCodeFromSteps(apiSteps, val)
-                      : prev.type === 'database'
-                      ? generateDatabaseCodeFromSteps(databaseSteps, val)
-                      : generateCodeFromSteps(visualSteps, val),
-                  }));
+                  setFormData((prev) => {
+                    const next = { ...prev, targetUrl: val };
+                    if (activeTab === 'nocode') {
+                      next.code = prev.type === 'api'
+                        ? generateApiCodeFromSteps(apiSteps, val)
+                        : prev.type === 'database'
+                        ? generateDatabaseCodeFromSteps(databaseSteps, val)
+                        : generateCodeFromSteps(visualSteps, val);
+                    }
+                    return next;
+                  });
                 }}
                 placeholder={
                   formData.type === 'api'
@@ -2517,6 +2660,19 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
                   >
                     <RotateCcw className="w-3 h-3" />
                     <span>Re-sync from Code</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const newCode = generateApiCodeFromSteps(apiSteps, formData.targetUrl);
+                      setFormData((prev) => ({ ...prev, code: newCode }));
+                      setActiveTab('code');
+                    }}
+                    className="px-2.5 py-1 rounded-md bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-semibold flex items-center space-x-1 transition cursor-pointer"
+                    title="Generate Playwright script from these visual steps and switch to Code Editor"
+                  >
+                    <Code className="w-3 h-3" />
+                    <span>Push to Code (Tab 3)</span>
                   </button>
                   <button
                     type="button"

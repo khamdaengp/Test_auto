@@ -77,7 +77,7 @@ export default function Navbar({
 
   return (
     <header className="border-b border-slate-200/90 bg-white/90 backdrop-blur-md sticky top-0 z-30 shadow-2xs">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="max-w-[1480px] mx-auto px-4 sm:px-6 lg:px-8">
         <div className="h-16 flex items-center justify-between">
           {/* Left: Mobile Drawer Trigger & Breadcrumbs */}
           <div className="flex items-center space-x-3">
