@@ -389,7 +389,7 @@ export default function App() {
       const [projectsData, suitesData, runsData, statsData] = await Promise.all([
         fetchProjects().catch(() => []),
         fetchSuites(),
-        fetchRuns(50, 0, '', targetProjId),
+        fetchRuns(50, 0, '', '', targetProjId),
         fetchStats(targetProjId),
       ]);
       if (Array.isArray(projectsData)) {
