@@ -37,6 +37,7 @@ import {
   ChevronDown,
   GripVertical,
 } from 'lucide-react';
+import { apiFetch } from '../services/api';
 
 const STARTER_TEMPLATES = {
   e2e: (url = 'https://example.com') => `import { test, expect } from '@playwright/test';
@@ -2382,7 +2383,7 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
     setError(null);
     setRecordedSuite(null);
     try {
-      const res = await fetch('/api/suites/codegen/start', {
+      const res = await apiFetch('/api/suites/codegen/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2408,7 +2409,7 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
       if (recordingPollRef.current) clearInterval(recordingPollRef.current);
       recordingPollRef.current = setInterval(async () => {
         try {
-          const pollRes = await fetch(`/api/suites/codegen/status/${sid}`);
+          const pollRes = await apiFetch(`/api/suites/codegen/status/${sid}`);
           if (!pollRes.ok) return;
           const pollData = await pollRes.json();
 
@@ -2456,7 +2457,7 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
     }
     if (recordingSessionId) {
       try {
-        await fetch(`/api/suites/codegen/stop/${recordingSessionId}`, { method: 'POST' });
+        await apiFetch(`/api/suites/codegen/stop/${recordingSessionId}`, { method: 'POST' });
       } catch (e) {}
     }
     setCodegenStatus(null);
@@ -2467,7 +2468,7 @@ export default function SuiteModal({ suite, isOpen, onClose, onSave, projects = 
   const handleLaunchCodegen = async () => {
     setCodegenStatus('launching');
     try {
-      const res = await fetch('/api/suites/codegen', {
+      const res = await apiFetch('/api/suites/codegen', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: formData.targetUrl || 'http://localhost:5175/login' }),
