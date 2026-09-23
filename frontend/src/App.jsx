@@ -13,6 +13,8 @@ import RecentRunsFeed from './components/RecentRunsFeed';
 import ConfirmModal from './components/ConfirmModal';
 import Toast from './components/Toast';
 import ToolsStudio from './components/ToolsStudio';
+import LoginPage from './components/LoginPage';
+import ChangePasswordModal from './components/ChangePasswordModal';
 import {
   Layers,
   ChevronRight,
@@ -24,6 +26,8 @@ import {
   Webhook,
   Database,
   Plus,
+  Loader2,
+  Shield,
 } from 'lucide-react';
 import {
   fetchProjects,
@@ -42,8 +46,12 @@ import {
   stopRun,
   clearAllRuns,
   deleteRun,
+  getCurrentUser,
+  logout as apiLogout,
+  getStoredUser,
+  getAuthToken,
 } from './services/api';
-import { socket } from './services/socket';
+import { socket, connectSocket, disconnectSocket } from './services/socket';
 
 const VIEW_ROUTES = {
   all: '/dashboard',
@@ -110,6 +118,11 @@ const DOMAIN_STUDIOS = {
 };
 
 export default function App() {
+  // Authentication & session security state
+  const [currentUser, setCurrentUser] = useState(() => getStoredUser());
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
+
   const [projects, setProjects] = useState(() => {
     try {
       const cached = localStorage.getItem('qa_cached_projects');
@@ -303,8 +316,72 @@ export default function App() {
     setToast({ message, type, id: Date.now() });
   };
 
+  // Verify session on mount and handle unauthorized/logout events
+  useEffect(() => {
+    let isMounted = true;
+    async function verifyAuth() {
+      try {
+        const user = await getCurrentUser();
+        if (isMounted) {
+          setCurrentUser(user);
+          if (user) {
+            connectSocket();
+          } else {
+            disconnectSocket();
+          }
+        }
+      } catch {
+        if (isMounted) {
+          setCurrentUser(null);
+          disconnectSocket();
+        }
+      } finally {
+        if (isMounted) setIsAuthLoading(false);
+      }
+    }
+
+    verifyAuth();
+
+    const handleUnauthorized = () => {
+      setCurrentUser(null);
+      disconnectSocket();
+      showToast('Session expired. Please log in again.', 'error');
+    };
+
+    const handleLogoutEvent = () => {
+      setCurrentUser(null);
+      disconnectSocket();
+    };
+
+    window.addEventListener('auth:unauthorized', handleUnauthorized);
+    window.addEventListener('auth:logout', handleLogoutEvent);
+
+    // Periodic check every 30 seconds for session timeout (8 hours)
+    const expiryInterval = setInterval(() => {
+      if (!getAuthToken()) {
+        setCurrentUser(null);
+        disconnectSocket();
+      }
+    }, 30000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(expiryInterval);
+      window.removeEventListener('auth:unauthorized', handleUnauthorized);
+      window.removeEventListener('auth:logout', handleLogoutEvent);
+    };
+  }, []);
+
+  const handleLogout = () => {
+    apiLogout();
+    setCurrentUser(null);
+    disconnectSocket();
+    showToast('Signed out of QA Dashboard.', 'info');
+  };
+
   // Load initial data
   const loadData = useCallback(async (projId) => {
+    if (!currentUser) return;
     // Safely check: ensure projId is a valid string and NOT a MouseEvent or SyntheticEvent
     const targetProjId = typeof projId === 'string' ? projId : selectedProjectId;
     setIsRefreshing(true);
@@ -331,7 +408,13 @@ export default function App() {
           (p) => String(p.id).trim().toLowerCase() === String(targetProjId).trim().toLowerCase()
         );
         if (!exists) {
+          // Project no longer exists in DB — reset to All and reload runs without project filter
           handleSelectProject('all');
+          try {
+            localStorage.removeItem('qa_selected_project_id');
+          } catch {}
+          const allRuns = await fetchRuns(50, 0, '', 'all').catch(() => ({ runs: [] }));
+          setRuns(allRuns.runs || []);
         }
       }
     } catch (err) {
@@ -339,11 +422,13 @@ export default function App() {
     } finally {
       setIsRefreshing(false);
     }
-  }, [selectedProjectId]);
+  }, [selectedProjectId, currentUser]);
 
   useEffect(() => {
-    loadData(selectedProjectId);
-  }, [selectedProjectId, loadData]);
+    if (currentUser) {
+      loadData(selectedProjectId);
+    }
+  }, [selectedProjectId, loadData, currentUser]);
 
   // Filter test suites based on selected project
   const displayedSuites =
@@ -719,6 +804,34 @@ export default function App() {
     database: displayedSuites.filter((s) => s.type === 'database' && !s.isSystem).length,
   };
 
+  // Loading screen while verifying auth session
+  if (isAuthLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center space-y-4 font-['Inter',sans-serif]">
+        <div className="w-14 h-14 rounded-2xl bg-indigo-600/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400 animate-pulse shadow-lg shadow-indigo-500/10">
+          <Shield className="w-7 h-7" />
+        </div>
+        <div className="flex items-center space-x-2.5 text-sm text-slate-300">
+          <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
+          <span>Verifying private security session...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // If not authenticated, render Login Page
+  if (!currentUser) {
+    return (
+      <LoginPage
+        onLoginSuccess={(user) => {
+          setCurrentUser(user);
+          connectSocket();
+          showToast(`Welcome back, ${user.username}!`, 'success');
+        }}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex font-['Inter',sans-serif]">
       {/* Sliding Sidebar Navigation */}
@@ -756,6 +869,9 @@ export default function App() {
           selectedProjectId={selectedProjectId}
           onSelectProject={handleSelectProject}
           onOpenProjectModal={() => setIsProjectModalOpen(true)}
+          user={currentUser}
+          onOpenChangePassword={() => setIsChangePasswordOpen(true)}
+          onLogout={handleLogout}
         />
 
         {/* Main Content Area */}
@@ -1106,6 +1222,13 @@ export default function App() {
         isLoading={confirmModal.isLoading}
         onConfirm={confirmModal.onConfirm}
         onClose={() => setConfirmModal((prev) => ({ ...prev, isOpen: false }))}
+      />
+
+      {/* Change Admin Password Modal */}
+      <ChangePasswordModal
+        isOpen={isChangePasswordOpen}
+        onClose={() => setIsChangePasswordOpen(false)}
+        onPasswordChanged={() => showToast('Admin password updated successfully!', 'success')}
       />
 
       {/* Modern Floating Toast Notification */}

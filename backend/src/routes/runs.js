@@ -29,7 +29,7 @@ router.get('/', async (req, res) => {
 
     if (projectId && projectId !== 'all') {
       params.push(projectId);
-      whereClauses.push(`(r.project_id = $${params.length} OR r.project_id IS NULL OR r.suite_id IN ('all-active', 'all-tests'))`);
+      whereClauses.push(`r.project_id = $${params.length}`);
     }
 
     if (whereClauses.length > 0) {
